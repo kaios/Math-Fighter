@@ -1,0 +1,1 @@
+"""Math Fighter game package."""
