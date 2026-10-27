@@ -5,7 +5,7 @@
 W, H = 1280, 720
 FPS = 60
 TITLE = "Math Fighter"
-__version__ = "1.3.0"
+__version__ = "1.4.0"
 
 # Rules
 ANSWER_TIME = 5.0        # seconds to answer each question

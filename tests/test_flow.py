@@ -87,8 +87,18 @@ class FlowTests(unittest.TestCase):
         self.assertIsInstance(sc, scenes.Champion)
         self.assertEqual(g.stage, 3)
         self.assertEqual(g.stats["asked"], g.stats["correct"])
-        # Champion -> credits -> THE END -> difficulty at a higher level
+        # Champion -> new high score name -> top 10 -> credits -> THE END -> next level
+        self.assertGreater(g.score, 0)
         self.tick(40)
+        press(g, pygame.K_RETURN)
+        self.assertIsInstance(g.scene, scenes.NameEntry)
+        for ch in "ACE":
+            press(g, 0, ch)
+        press(g, pygame.K_RETURN)
+        self.assertIsInstance(g.scene, scenes.HighScores)
+        self.assertEqual(g.scene.highlight, 0)
+        self.assertEqual(save.load()["scores"][0]["name"], "ACE")
+        self.assertEqual(save.load()["scores"][0]["score"], g.score)
         press(g, pygame.K_RETURN)
         self.assertIsInstance(g.scene, scenes.Credits)
         press(g, pygame.K_RETURN)   # skip scroll
@@ -224,6 +234,29 @@ class FlowTests(unittest.TestCase):
         self.assertEqual(save.load().get("music"), not on)
         g.toggle_music()
         self.assertEqual(g.audio.music_on, on)
+
+
+    def test_name_entry_limits_to_10_characters_and_m_is_a_letter(self):
+        g = self.g
+        g.score, g.level = 1234, 2
+        music = g.audio.music_on
+        g.end_run(lambda: scenes.Title(g))
+        self.assertIsInstance(g.scene, scenes.NameEntry)
+        for ch in "MATHEMATICIAN":                       # 13 letters, with M in it
+            g.dispatch(pygame.event.Event(pygame.KEYDOWN, key=ord(ch.lower()), unicode=ch, mod=0))
+        self.assertEqual(g.scene.name, "MATHEMATIC")     # cut at 10
+        self.assertEqual(g.audio.music_on, music)        # typing M didn't switch the music
+        press(g, pygame.K_RETURN)
+        self.assertIsInstance(g.scene, scenes.HighScores)
+        press(g, pygame.K_RETURN)
+        self.assertIsInstance(g.scene, scenes.Title)
+        self.assertEqual(save.load()["last_name"], "MATHEMATIC")
+
+    def test_zero_score_skips_name_entry(self):
+        g = self.g
+        g.score = 0
+        g.end_run(lambda: scenes.Title(g))
+        self.assertIsInstance(g.scene, scenes.Title)
 
 
 if __name__ == "__main__":

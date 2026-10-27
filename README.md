@@ -57,7 +57,7 @@ You never fight the same opponent twice.
 * After a wrong answer the game always shows the right answer, so kids learn from it.
 * Win all 4 stages, watch the credits, then play again at the next level up.
 
-Other keys: **ESC/P** pause, **M** music on/off (sound effects stay on; the
+Other keys: **T** top 10 (on the title screen), **ESC/P** pause, **M** music on/off (sound effects stay on; the
 choice is remembered), **F11** full screen. On a touch screen, an on-screen
 number pad and a pause button appear automatically; tap **MUSIC** on the title
 screen or the music line on the pause screen to switch music on or off.
@@ -65,6 +65,26 @@ screen or the music line on the pause screen to switch music on or off.
 Every stage has its own song (plus the title and champion screens), and each
 song has an intro, verses and a chorus, so it runs for about a minute before
 repeating.
+
+### Score and the Top 10
+
+| You did | Points |
+|---|---|
+| Right answer | 100, plus up to 100 more for answering fast |
+| Counter attack (a fast block) | +100 |
+| Won a round | +500 |
+| Perfect round (won without getting hit) | +1000 more |
+
+All points are multiplied by the level number (the bonus level counts as 6),
+so harder levels score more. Your score is shown at the bottom left during
+fights.
+
+When a run ends (you win the tournament, or lose a match) with a score in
+the top 10, you type a name of up to 10 characters (keyboard, or the
+on-screen keys on a touch screen), and the Top 10 table shows where you
+placed. See the table any time with **T** or the **TOP 10** button on the title
+screen. Trying a stage again after a loss starts a fresh score. Scores are
+kept in the save file.
 
 ### Difficulty levels
 
@@ -168,11 +188,13 @@ mathfighter/
   draw.py               anti-aliased cel-shaded drawing helpers
   stages.py             the four arenas
   battle.py             the fight: rounds, questions, attacks, blocks, counters, KOs
-  scenes.py             title, how-to, difficulty, select, versus, game over, champion, credits
+  scenes.py             title, how-to, difficulty, select, versus, game over, champion,
+                        name entry, top 10, credits
   effects.py            particles, hit sparks, projectiles, screen shake
   audio.py              synthesized sound effects and a composer for the songs
   ui.py                 text, panels, touch keypad
-  save.py               save file: bonus unlock and music setting
+  save.py               save file: bonus unlock, music setting, top 10
+  highscores.py         the top 10 score table
   game.py               main loop and tournament progression
 ```
 

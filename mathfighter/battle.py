@@ -16,6 +16,12 @@ from .stages import STAGES
 from .ui import Keypad, font, panel, portrait, text
 
 SCALE = 1.05
+# Points (all multiplied by the level number, so harder levels score more)
+PTS_CORRECT = 100        # plus up to PTS_SPEED more the faster you answer
+PTS_SPEED = 100
+PTS_COUNTER = 100
+PTS_ROUND = 500
+PTS_FLAWLESS = 1000      # won a round without getting hit
 ATTACK_MOVES = ["punch", "kick", "combo", "special"]
 EXPR = {"punch": "angry", "kick": "angry", "combo": "angry", "special": "angry", "uppercut": "angry",
         "charge": "angry", "block": "angry", "hit": "hurt", "ko": "ko", "victory": "happy",
@@ -96,6 +102,7 @@ class Battle:
         self.wins = [0, 0]
         self.paused = False
         self.disp_hp = [float(MAX_HITS), float(MAX_HITS)]
+        self.score_pop = None     # (points, seconds shown) for the "+250" next to the score
         game.audio.play_music(self.stage.music_key)
         self.start_round(first=True)
 
@@ -158,11 +165,19 @@ class Battle:
             att, dfd = self.c, self.p
             outcome = "block" if correct else "hit"
             counter = correct and elapsed <= self.counter_window
+        if correct:
+            self.add_points(PTS_CORRECT + int(PTS_SPEED * self.q_left / self.q_time)
+                            + (PTS_COUNTER if counter else 0))
         move = random.choice(ATTACK_MOVES)
         self.exchange = {"att": att, "dfd": dfd, "outcome": outcome, "counter": counter,
                          "counter_t": None, "counter_phase": False, "dodged": False, "ko": None}
         att.play(move)
         self.set_state("action")
+
+    def add_points(self, pts):
+        pts *= self.level
+        self.game.score += pts
+        self.score_pop = [pts, 0.0]
 
     # ------------------------------------------------------------- impacts --
     def damage(self, victim, attacker, label, big=False):
@@ -303,6 +318,8 @@ class Battle:
         self.fx.update(dt)
         if self.result:
             self.result["t"] += dt
+        if self.score_pop:
+            self.score_pop[1] += dt
         for i, a in enumerate((self.p, self.c)):
             target = MAX_HITS - a.hits
             if self.disp_hp[i] > target:
@@ -396,6 +413,8 @@ class Battle:
             w = (self.p, self.c)[self.round_winner]
             w.play("victory")
             self.game.audio.play("confirm" if self.round_winner == 0 else "wrong")
+            if self.round_winner == 0:
+                self.add_points(PTS_ROUND + (PTS_FLAWLESS if ph == 0 else 0))
         self.set_state("round_end")
 
     # --------------------------------------------------------------- draw --
@@ -470,6 +489,11 @@ class Battle:
         text(surf, str(int(math.ceil(self.time))), 76, tcol, center=(W // 2, 56))
         label = "FINAL ROUND" if self.round >= 3 else f"ROUND {self.round}"
         text(surf, label, 30, GOLD, center=(W // 2, 112))
+        text(surf, f"SCORE {g.score:,}", 34, GOLD, midleft=(20, H - 22), ow=3)
+        if self.score_pop and self.score_pop[1] < 1.2:
+            k = self.score_pop[1] / 1.2
+            text(surf, f"+{self.score_pop[0]:,}", 32, (255, 255, 160),
+                 midleft=(20, int(H - 58 - 30 * k)), ow=3)
         lv = "BONUS LEVEL: FRACTIONS" if self.level >= BONUS_LEVEL else f"LEVEL {self.level}"
         text(surf, f"STAGE {self.stage_no + 1}: {self.stage.name.upper()}   {lv}", 26,
              (230, 230, 240), center=(W // 2, H - 18))
@@ -554,7 +578,7 @@ class Battle:
             if self.round_winner is None:
                 msg = "DRAW!"
             elif self.round_winner == 0:
-                msg, col = "YOU WIN THE ROUND!", GREEN
+                msg, col = ("PERFECT ROUND!" if self.p.hits == 0 else "YOU WIN THE ROUND!"), GREEN
             else:
                 msg, col = f"{self.c.fd.name.upper()} WINS THE ROUND", RED
         elif s == "match_end":

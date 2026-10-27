@@ -1,11 +1,12 @@
 """Menus and story screens: title, how to play, difficulty, character select,
-versus, game over, champion, credits."""
+versus, game over, champion, name entry, top 10, credits."""
 
 import math
 import random
 
 import pygame
 
+from . import highscores
 from .battle import Actor
 from .characters import ROSTER
 from .config import __version__, BONUS_LEVEL, CREDITS_NAME, GOLD, GREEN, H, MAX_LEVEL, RED, W, WHITE
@@ -69,6 +70,7 @@ def logo(surf, cy, t):
 
 class Title(Scene):
     MUSIC_BTN = pygame.Rect(W - 230, 16, 214, 50)
+    TOP_BTN = pygame.Rect(16, 16, 214, 50)
 
     def __init__(self, game):
         super().__init__(game)
@@ -84,6 +86,10 @@ class Title(Scene):
         if ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 1 and self.MUSIC_BTN.collidepoint(ev.pos):
             self.game.toggle_music()
             self.game.audio.play("select")
+        elif (ev.type == pygame.KEYDOWN and ev.key == pygame.K_t) or \
+                (ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 1 and self.TOP_BTN.collidepoint(ev.pos)):
+            self.game.audio.play("select")
+            self.game.goto(HighScores(self.game))
         elif (ev.type == pygame.KEYDOWN and ev.key in CONFIRM) or \
                 (ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 1):
             self.game.audio.play("confirm")
@@ -110,7 +116,9 @@ class Title(Scene):
         on = self.game.audio.music_on
         panel(surf, self.MUSIC_BTN, (40, 110, 70) if on else (90, 40, 60), 220, WHITE, 12, 2)
         text(surf, "MUSIC: ON" if on else "MUSIC: OFF", 32, center=self.MUSIC_BTN.center, ow=2)
-        text(surf, "F11: Full screen    M: Music on/off    ESC: Pause", 26, (200, 190, 230),
+        panel(surf, self.TOP_BTN, (110, 80, 20), 220, WHITE, 12, 2)
+        text(surf, "TOP 10", 32, GOLD, center=self.TOP_BTN.center, ow=2)
+        text(surf, "T: Top 10    F11: Full screen    M: Music on/off    ESC: Pause", 26, (200, 190, 230),
              center=(W // 2, H - 20), ow=2)
         text(surf, f"v{__version__}", 22, (170, 160, 200), bottomright=(W - 10, H - 6), ow=2)
 
@@ -414,14 +422,20 @@ class GameOver(Scene):
         if ev.type == pygame.KEYDOWN:
             if ev.key in CONFIRM:
                 self.game.audio.play("confirm")
-                self.game.goto(Versus(self.game))
+                self.retry()
             elif ev.key == pygame.K_ESCAPE:
                 self.game.to_title()
         elif ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 1:
             if ev.pos[1] < H - 140:
-                self.game.goto(Versus(self.game))
+                self.retry()
             else:
                 self.game.to_title()
+
+    def retry(self):
+        """Trying again continues the tournament, but with a fresh score
+        (the old one was already saved if it made the top 10)."""
+        self.game.score = 0
+        self.game.goto(Versus(self.game))
 
     def draw(self, surf):
         surf.fill((15, 5, 20))
@@ -429,9 +443,10 @@ class GameOver(Scene):
         text(surf, "GAME OVER", int(140 * (0.6 + 0.4 * k)), RED, center=(W // 2, 200), ow=7)
         text(surf, "Don't give up! Every math champion keeps practicing.", 40, WHITE, center=(W // 2, 320))
         st = self.game.stats
-        text(surf, f"Correct answers: {st['correct']} / {st['asked']}", 40, GOLD, center=(W // 2, 380))
+        text(surf, f"Correct answers: {st['correct']} / {st['asked']}      Score: {self.game.score:,}", 40, GOLD,
+             center=(W // 2, 380))
         if blink(self.t):
-            text(surf, "Press ENTER to try this stage again", 50, GREEN, center=(W // 2, 490))
+            text(surf, "Press ENTER to try this stage again (new score)", 50, GREEN, center=(W // 2, 490))
         text(surf, "ESC for the title screen", 36, (200, 200, 220), center=(W // 2, 600))
 
 
@@ -464,7 +479,7 @@ class Champion(Scene):
     def handle(self, ev):
         if self.t > 1.0 and ((ev.type == pygame.KEYDOWN and ev.key in CONFIRM) or
                              (ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 1)):
-            self.game.goto(Credits(self.game))
+            self.game.end_run(lambda: Credits(self.game))
 
     def update(self, dt):
         super().update(dt)
@@ -493,9 +508,125 @@ class Champion(Scene):
         pct = int(100 * st["correct"] / st["asked"]) if st["asked"] else 0
         text(surf, f"{self.game.player.name}  -  Level {self.game.level}", 40, lighter(self.game.player.theme, 0.3),
              center=(900, 590))
-        text(surf, f"Correct answers: {st['correct']} / {st['asked']}  ({pct}%)", 36, WHITE, center=(900, 630))
+        text(surf, f"Correct: {st['correct']} / {st['asked']} ({pct}%)    Score: {self.game.score:,}", 36, WHITE,
+             center=(900, 630))
         if blink(self.t) and self.t > 1.0:
             text(surf, "Press ENTER", 40, GREEN, center=(900, 690))
+
+
+class NameEntry(Scene):
+    """New top-10 score: type a name of up to 10 characters. Keyboard, or the
+    on-screen keys on a touch screen."""
+    text_input = True       # tells the main loop that M is a letter here, not music
+    ROWS = ["ABCDEFGHIJ", "KLMNOPQRST", "UVWXYZ0123", "456789-.!?"]
+    ALLOWED = set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 -.!?_")
+
+    def __init__(self, game, then):
+        super().__init__(game)
+        self.then = then
+        self.name = game.save.get("last_name", "")[:highscores.NAME_LEN]
+        self.bg = starfield_bg((10, 20, 60), (60, 20, 90))
+        self.keys = []
+        size, gap = 74, 8
+        x0 = W // 2 - (10 * size + 9 * gap) // 2
+        for r, row in enumerate(self.ROWS):
+            for c, ch in enumerate(row):
+                self.keys.append((ch, pygame.Rect(x0 + c * (size + gap), 330 + r * (60 + gap), size, 60)))
+        y = 330 + 4 * (60 + gap)
+        self.keys += [("SPACE", pygame.Rect(x0, y, 3 * size + 2 * gap, 60)),
+                      ("DEL", pygame.Rect(x0 + 3 * (size + gap), y, 3 * size + 2 * gap, 60)),
+                      ("OK", pygame.Rect(x0 + 6 * (size + gap), y, 4 * size + 3 * gap, 60))]
+        game.audio.play("confirm")
+
+    def press(self, k):
+        if k == "OK":
+            self.done()
+        elif k == "DEL":
+            self.name = self.name[:-1]
+        elif len(self.name) < highscores.NAME_LEN:
+            self.name += " " if k == "SPACE" else k
+        self.game.audio.play("select")
+
+    def done(self):
+        g = self.game
+        place = g.record_score(self.name)
+        g.audio.play("confirm")
+        g.goto(HighScores(g, place, self.then))
+
+    def handle(self, ev):
+        if ev.type == pygame.KEYDOWN:
+            if ev.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
+                self.done()
+            elif ev.key == pygame.K_BACKSPACE:
+                self.name = self.name[:-1]
+            elif ev.unicode and ev.unicode in self.ALLOWED and len(self.name) < highscores.NAME_LEN:
+                self.name += ev.unicode.upper()
+        elif ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 1:
+            for k, r in self.keys:
+                if r.collidepoint(ev.pos):
+                    self.press(k)
+                    break
+
+    def draw(self, surf):
+        surf.blit(self.bg, (0, 0))
+        text(surf, "NEW HIGH SCORE!", 90, GOLD, center=(W // 2, 70), ow=5)
+        text(surf, f"{self.game.score:,} points", 50, WHITE, center=(W // 2, 145), ow=3)
+        text(surf, f"Type your name (up to {highscores.NAME_LEN} letters), then ENTER", 34,
+             (200, 200, 240), center=(W // 2, 200), ow=2)
+        box = pygame.Rect(W // 2 - 260, 230, 520, 76)
+        pygame.draw.rect(surf, (250, 250, 255), box, border_radius=12)
+        pygame.draw.rect(surf, GOLD, box, 4, border_radius=12)
+        cursor = "_" if blink(self.t, 3) and len(self.name) < highscores.NAME_LEN else ""
+        text(surf, self.name + cursor, 60, (20, 20, 40), center=box.center, ow=0)
+        for k, r in self.keys:
+            col = (60, 160, 90) if k == "OK" else (190, 70, 70) if k == "DEL" else (60, 60, 110)
+            panel(surf, r, col, 220, WHITE, 10, 2)
+            text(surf, k, 40 if len(k) == 1 else 32, center=r.center)
+
+
+class HighScores(Scene):
+    """The top 10 table. A newly added score is highlighted."""
+
+    def __init__(self, game, highlight=None, then=None):
+        super().__init__(game)
+        self.highlight = highlight
+        self.then = then
+        self.rows = highscores.table(game.save)
+        self.bg = starfield_bg((20, 10, 40), (70, 30, 80))
+
+    def handle(self, ev):
+        if (ev.type == pygame.KEYDOWN and (ev.key in CONFIRM or ev.key == pygame.K_ESCAPE)) or \
+                (ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 1):
+            self.game.audio.play("confirm")
+            if self.then:
+                self.game.goto(self.then())
+            else:
+                self.game.to_title()
+
+    def draw(self, surf):
+        surf.blit(self.bg, (0, 0))
+        text(surf, "TOP 10 MATH FIGHTERS", 80, GOLD, center=(W // 2, 60), ow=5)
+        panel(surf, (110, 110, W - 220, 530), (10, 10, 30), 210)
+        cols = (170, 260, 640, 830, 1010)
+        for x, head in zip(cols, ("#", "NAME", "SCORE", "LEVEL", "FIGHTER")):
+            text(surf, head, 30, (180, 180, 220), midleft=(x, 140), ow=2)
+        if not self.rows:
+            text(surf, "No scores yet. Win some fights!", 44, WHITE, center=(W // 2, 380))
+        for i, r in enumerate(self.rows):
+            y = 190 + i * 45
+            new = i == self.highlight
+            if new:
+                pulse = 0.5 + 0.5 * math.sin(self.t * 6)
+                panel(surf, (130, y - 21, W - 260, 42), mix((90, 70, 10), (160, 120, 20), pulse), 230,
+                      GOLD, 8, 2)
+            col = GOLD if new else ((255, 225, 120) if i == 0 else WHITE)
+            lv = r.get("level", 1)
+            for x, val in zip(cols, (str(i + 1), r["name"], f"{r['score']:,}",
+                                     "BONUS" if lv >= BONUS_LEVEL else str(lv),
+                                     str(r.get("fighter", "")).split()[0])):
+                text(surf, val, 36, col, midleft=(x, y), ow=2)
+        if blink(self.t):
+            text(surf, "Press ENTER to continue", 40, GREEN, center=(W // 2, H - 40))
 
 
 class Credits(Scene):
