@@ -1,7 +1,7 @@
 import random
 import unittest
 
-from mathfighter.mathq import ADD, DIV, MUL, SUB, QuestionMaker, make_question
+from mathfighter.mathq import ADD, DIV, MIX, MUL, SUB, QuestionMaker, make_question
 
 
 class MathQuestionTests(unittest.TestCase):
@@ -36,6 +36,10 @@ class MathQuestionTests(unittest.TestCase):
             q = qm.next()
             self.assertNotEqual(q, prev)
             prev = q
+
+    def test_mixed_uses_all_four_operations(self):
+        qm = QuestionMaker(MIX, 3, random.Random(4))
+        self.assertEqual({qm.next().op for _ in range(200)}, {ADD, SUB, MUL, DIV})
 
 
 if __name__ == "__main__":

@@ -5,11 +5,13 @@
 W, H = 1280, 720
 FPS = 60
 TITLE = "Math Fighter"
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 
 # Rules
 ANSWER_TIME = 5.0        # seconds to answer each question
 COUNTER_WINDOW = 2.5     # answer a defense question this fast to counter attack
+BOSS_ANSWER_TIME = 3.0   # seconds to block the final boss (counter window shrinks to match)
+TURN_PAUSE = 0.8         # seconds between one exchange and the next question
 ROUND_TIME = 99          # seconds per round
 MAX_HITS = 8             # 8 strikes and you are out
 ROUNDS_TO_WIN = 2        # best of 3

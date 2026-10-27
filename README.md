@@ -18,6 +18,12 @@ When you attack, you answer a question in your own fighter's math. When the
 CPU attacks, you answer a question in the *attacker's* math to block it. For
 example, Kai attacks with addition but must answer subtraction to block Dax.
 
+### Final boss: Ninja Ryu
+
+**Ninja Ryu**, the Grand Master, waits on stage 4. His attacks use a random mix
+of all four operations, and you get only **3 seconds** to block them (your own
+attacks on him still give you 5 seconds).
+
 ## Stages
 
 1. **Sakura Temple**: Kyoto Mountains, Japan (sunset, falling cherry blossoms)
@@ -26,17 +32,20 @@ example, Kai attacks with addition but must answer subtraction to block Dax.
 4. **Aurora Ice Palace**: The Frozen North Pole (northern lights, snow)
 
 Your first opponent is picked at random by the CPU, and the next two are the
-other fighters in random order. The final boss on stage 4 is **your own shadow**.
+other fighters in random order. The final boss on stage 4 is **Ninja Ryu**.
 You never fight the same opponent twice.
 
 ## How to play
 
-* **SPACE** (or ENTER): attack. A question appears and you have **5 seconds**.
+* You and the CPU take turns automatically: you attack, then the CPU attacks,
+  and so on. There is no attack button to press.
+* On your turn, a question in your fighter's math appears and you have **5 seconds**.
   * Right answer: your attack hits.
   * Wrong or too slow: you miss.
 * When the CPU attacks, a question in the **CPU fighter's** math appears and you have **5 seconds**.
   * Right answer: you **block**.
   * Right answer in under **2.5 seconds**: you block **and counter attack**!
+    (Against Ninja Ryu: 3 seconds to block, under 1.5 seconds to counter.)
   * Wrong or too slow: you get hit.
 * Type answers with the **number keys**. There is no ENTER: the answer is checked
   as soon as you have typed as many digits as the right answer has (the answer box
@@ -48,7 +57,7 @@ You never fight the same opponent twice.
 * Win all 4 stages, watch the credits, then play again at the next level up.
 
 Other keys: **ESC/P** pause, **M** sound on/off, **F11** full screen.
-On a touch screen, an on-screen number pad and ATTACK button appear automatically.
+On a touch screen, an on-screen number pad and a pause button appear automatically.
 
 ### Difficulty levels
 
@@ -117,7 +126,7 @@ To install without adb, copy the APK to the phone, open it, and allow
 "install unknown apps" when Android asks.
 
 The game already runs at a fixed 1280×720 internal resolution scaled to any
-screen, detects Android, and supports touch (number pad, ATTACK button, tap
+screen, detects Android, and supports touch (number pad, tap
 to pause, Android back button).
 
 ## Tests
@@ -138,7 +147,7 @@ main.py                 entry point
 mathfighter/
   config.py             rules (5 s answers, 99 s rounds, 8 hits, best of 3) and credits name
   mathq.py              question generator for each operation and level
-  characters.py         the four fighters + shadow boss
+  characters.py         the four fighters + the final boss, Ninja Ryu
   sprite.py             procedural anime sprite rig, poses and animations
   draw.py               anti-aliased cel-shaded drawing helpers
   stages.py             the four arenas

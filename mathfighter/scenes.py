@@ -110,11 +110,12 @@ class Title(Scene):
 class HowTo(Scene):
     LINES = [
         ("Pick a fighter. Each one fights with a different kind of math!", WHITE),
-        ("Press SPACE to attack. Answer the question in 5 seconds to land a hit.", GOLD),
+        ("You and the CPU take turns. On your turn, answer in 5 seconds to land a hit.", GOLD),
         ("When the CPU attacks, answer ITS math question fast to BLOCK. Too slow = hit!", (120, 200, 255)),
         ("Answer a defense question in under 2.5 seconds for a COUNTER attack!", (255, 160, 220)),
         ("Type every digit of the answer (50 is 5 then 0). No ENTER needed!", WHITE),
         ("8 hits and you're down. Win 2 rounds to beat a stage. Each round is 99 seconds.", WHITE),
+        ("Final boss NINJA RYU mixes all 4 kinds of math. Block him in 3 seconds!", (255, 120, 120)),
         ("Win all 4 stages to become the MATH TOURNAMENT CHAMPION!", GREEN),
     ]
 
@@ -134,7 +135,7 @@ class HowTo(Scene):
         text(surf, "HOW TO PLAY", 96, GOLD, center=(W // 2, 80), ow=5)
         panel(surf, (90, 150, W - 180, 470), (10, 10, 30), 200)
         for i, (line, col) in enumerate(self.LINES):
-            text(surf, line, 36, col, midleft=(130, 200 + i * 62), ow=3)
+            text(surf, line, 36, col, midleft=(130, 192 + i * 56), ow=3)
         if blink(self.t):
             text(surf, "Press ENTER to continue", 46, WHITE, center=(W // 2, H - 50))
 

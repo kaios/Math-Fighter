@@ -1,8 +1,8 @@
-"""The four fighters (plus the shadow boss, generated from the player's pick)."""
+"""The four fighters, plus the final boss Ninja Ryu."""
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 
-from .mathq import ADD, DIV, MUL, SUB
+from .mathq import ADD, DIV, MIX, MUL, SUB
 
 
 @dataclass(frozen=True)
@@ -12,7 +12,7 @@ class Fighter:
     title: str
     op: str
     female: bool
-    hair_style: str          # spiky | swept | long | twintails
+    hair_style: str          # spiky | swept | long | twintails | hood
     bio: str
     special: str
     theme: tuple             # UI color
@@ -25,7 +25,7 @@ class Fighter:
     boots: tuple
     accent: tuple            # headband / scarf / sash / ribbons
     height: float = 1.0
-    shadow: bool = False
+    boss: bool = False
 
 
 KAI = Fighter(
@@ -63,12 +63,11 @@ MIRA = Fighter(
 ROSTER = [KAI, LUNA, DAX, MIRA]
 
 
-def shadow_of(f):
-    """Final boss: a dark mirror of the player's own fighter."""
-    first = f.name.split()[0]
-    return replace(
-        f, key="shadow_" + f.key, name="Shadow " + first, title="The Final Challenge",
-        bio="Your own reflection, made of pure darkness. Only true math skill wins!",
-        theme=(150, 40, 200), skin=(120, 105, 150), hair=(30, 20, 45), eyes=(255, 40, 60),
-        top=(45, 30, 70), top2=(90, 60, 120), pants=(35, 25, 55), boots=(20, 15, 30),
-        accent=(200, 30, 60), shadow=True)
+# Final boss (stage 4). Not selectable.
+RYU = Fighter(
+    key="ryu", name="Ninja Ryu", title="The Grand Master", op=MIX, female=False,
+    hair_style="hood", special="Four Storm Strike",
+    bio="Master of the Math Tournament. He strikes with all four kinds of math!",
+    theme=(220, 40, 50), skin=(236, 198, 162), hair=(34, 32, 42), eyes=(245, 185, 40),
+    top=(44, 44, 56), top2=(96, 96, 112), pants=(38, 38, 48), boots=(26, 26, 32),
+    accent=(215, 30, 45), height=1.08, boss=True)

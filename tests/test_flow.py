@@ -55,16 +55,14 @@ class FlowTests(unittest.TestCase):
         self.assertIsInstance(g.scene, Battle)
 
     def play(self, correct, max_ticks=60000):
-        """Bot: attack whenever allowed, answer every question (right or wrong)."""
+        """Bot: answer every question (right or wrong). Turns run by themselves."""
         g = self.g
         seen = set()
         for _ in range(max_ticks):
             sc = g.scene
             seen.add(type(sc).__name__)
             if isinstance(sc, Battle):
-                if sc.state == "neutral" and sc.player_turn:
-                    press(g, pygame.K_SPACE)
-                elif sc.state == "question" and sc.q_left < 4.5:
+                if sc.state == "question" and sc.q_left < sc.q_time - 0.5:
                     ans = sc.q.answer if correct else sc.q.answer + 1
                     for ch in str(ans):
                         press(g, 0, ch)
@@ -80,7 +78,8 @@ class FlowTests(unittest.TestCase):
         self.assertEqual(len(opp), 4)
         self.assertEqual(len(set(opp)), 4)
         self.assertNotIn(g.player.key, opp)
-        self.assertTrue(g.opponents[-1].shadow)
+        self.assertTrue(g.opponents[-1].boss)
+        self.assertEqual(g.opponents[-1].name, "Ninja Ryu")
         sc, seen = self.play(correct=True)
         self.assertIsInstance(sc, scenes.Champion)
         self.assertEqual(g.stage, 3)
@@ -144,6 +143,38 @@ class FlowTests(unittest.TestCase):
         self.assertTrue(b.result["correct"])
         b.ask("defend")
         self.assertEqual(b.q.op, b.c.fd.op)
+        self.assertEqual(b.q_time, 5.0)
+
+    def test_turns_alternate_without_pressing_attack(self):
+        self.to_battle(level=1, pick=2)
+        b = self.g.scene
+        modes = []
+        for _ in range(4000):
+            if b.state == "question":       # answering right away moves on to the action
+                modes.append(b.mode)
+                for ch in str(b.q.answer):
+                    press(self.g, 0, ch)
+            if len(modes) >= 4:
+                break
+            self.tick()
+        self.assertEqual(modes, ["attack", "defend", "attack", "defend"])
+
+    def test_final_boss_is_ninja_ryu_with_mixed_math_and_3_seconds(self):
+        g = self.g
+        self.to_battle(level=2, pick=1)
+        g.stage = 3
+        g.start_battle()
+        b = g.scene
+        self.assertEqual(b.c.fd.name, "Ninja Ryu")
+        ops = set()
+        for _ in range(60):
+            b.ask("defend")
+            self.assertEqual(b.q_time, 3.0)
+            ops.add(b.q.op)
+        self.assertEqual(ops, {"+", "-", "x", "/"})
+        b.ask("attack")
+        self.assertEqual(b.q.op, b.p.fd.op)
+        self.assertEqual(b.q_time, 5.0)
 
 
 if __name__ == "__main__":

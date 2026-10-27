@@ -7,7 +7,7 @@ import sys
 import pygame
 
 from .config import FPS, H, TITLE, W
-from .characters import ROSTER, shadow_of
+from .characters import ROSTER, RYU
 
 ON_ANDROID = "ANDROID_ARGUMENT" in os.environ or hasattr(sys, "getandroidapilevel")
 
@@ -48,11 +48,11 @@ class Game:
 
     def start_tournament(self, player, first_cpu):
         """The CPU's pick is the first opponent; the other two follow in random
-        order and the final stage is the player's own shadow. No repeats."""
+        order and the final stage is the boss, Ninja Ryu. No repeats."""
         self.player = player
         rest = [f for f in ROSTER if f not in (player, first_cpu)]
         random.shuffle(rest)
-        self.opponents = [first_cpu] + rest + [shadow_of(player)]
+        self.opponents = [first_cpu] + rest + [RYU]
         self.stage = 0
         self.reset_stats()
         from .scenes import Versus

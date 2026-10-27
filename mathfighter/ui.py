@@ -96,15 +96,3 @@ class Keypad:
             panel(surf, r, col, 220, WHITE, 12, 2)
             text(surf, k, 44 if len(k) == 1 else 32, center=r.center)
 
-
-class Button:
-    def __init__(self, rect, label, color=(230, 60, 80), size=40):
-        self.rect, self.label, self.color, self.size = pygame.Rect(rect), label, color, size
-
-    def hit(self, pos):
-        return self.rect.collidepoint(pos)
-
-    def draw(self, surf, pulse=0.0):
-        r = self.rect.inflate(int(pulse * 8), int(pulse * 8))
-        panel(surf, r, self.color, 230, WHITE, 18, 3)
-        text(surf, self.label, self.size, center=r.center)

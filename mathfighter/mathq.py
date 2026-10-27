@@ -4,10 +4,13 @@ import random
 from dataclasses import dataclass
 
 ADD, SUB, MUL, DIV = "+", "-", "x", "/"
+OPS = (ADD, SUB, MUL, DIV)
+MIX = "mix"   # the final boss asks a random one of the four each time
 
 # Symbols as shown on screen.
-DISPLAY = {ADD: "+", SUB: "\u2212", MUL: "×", DIV: "÷"}
-OP_NAMES = {ADD: "Addition", SUB: "Subtraction", MUL: "Multiplication", DIV: "Division"}
+DISPLAY = {ADD: "+", SUB: "\u2212", MUL: "×", DIV: "÷", MIX: "?"}
+OP_NAMES = {ADD: "Addition", SUB: "Subtraction", MUL: "Multiplication", DIV: "Division",
+            MIX: "Mixed"}
 
 # (range for a, range for b) per level. For SUB the pair is (result, b) and
 # for DIV it is (divisor, quotient) so answers are always whole and >= 0.
@@ -51,7 +54,8 @@ def make_question(op, level, rng=random):
 
 
 class QuestionMaker:
-    """Avoids asking the same question twice in a row."""
+    """Avoids asking the same question twice in a row. With op=MIX each
+    question uses a random one of the four operations."""
 
     def __init__(self, op, level, rng=None):
         self.op, self.level = op, level
@@ -60,7 +64,8 @@ class QuestionMaker:
 
     def next(self):
         for _ in range(20):
-            q = make_question(self.op, self.level, self.rng)
+            op = self.rng.choice(OPS) if self.op == MIX else self.op
+            q = make_question(op, self.level, self.rng)
             if q not in self.recent:
                 break
         self.recent = (self.recent + [q])[-6:]

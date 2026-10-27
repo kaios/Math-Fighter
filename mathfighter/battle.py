@@ -5,18 +5,17 @@ import random
 
 import pygame
 
-from .config import (ANSWER_TIME, COUNTER_WINDOW, CPU_HOME_X, GOLD, GREEN, GROUND_Y, H, MAX_HITS,
-                     PLAYER_HOME_X, RED, ROUND_TIME, ROUNDS_TO_WIN, W, WHITE)
+from .config import (ANSWER_TIME, BOSS_ANSWER_TIME, COUNTER_WINDOW, CPU_HOME_X, GOLD, GREEN, GROUND_Y,
+                     H, MAX_HITS, PLAYER_HOME_X, RED, ROUND_TIME, ROUNDS_TO_WIN, TURN_PAUSE, W, WHITE)
 from .draw import fill_circle, lighter
 from .effects import Effects, Projectile
 from .mathq import DISPLAY, OP_NAMES, QuestionMaker
 from .sprite import VICTORY, Animator, Rig
 from .stages import STAGES
-from .ui import Button, Keypad, font, panel, portrait, text
+from .ui import Keypad, font, panel, portrait, text
 
 SCALE = 1.05
 ATTACK_MOVES = ["punch", "kick", "combo", "special"]
-CPU_WAIT = {1: 4.5, 2: 4.0, 3: 3.5, 4: 3.0, 5: 2.5}   # seconds before the CPU attacks
 EXPR = {"punch": "angry", "kick": "angry", "combo": "angry", "special": "angry", "uppercut": "angry",
         "charge": "angry", "block": "angry", "hit": "hurt", "ko": "ko", "victory": "happy",
         "victory_loop": "happy"}
@@ -89,7 +88,6 @@ class Battle:
         self.qm_defend = QuestionMaker(self.c.fd.op, game.level)
         self.fx = Effects()
         self.keypad = Keypad()
-        self.attack_btn = Button((W // 2 - 140, H - 120, 280, 90), "ATTACK!", (230, 60, 80), 52)
         self.round = 1
         self.wins = [0, 0]
         self.paused = False
@@ -109,8 +107,9 @@ class Battle:
         self.q = None
         self.result = None
         self.exchange = None
-        self.player_turn = True
-        self.cpu_timer = CPU_WAIT[self.level]
+        # The player and the CPU take turns attacking, with no button to press.
+        self.next_mode = "attack"
+        self.wait = 0.0
         self.slowmo = 0.0
         self.announced_fight = False
         self.disp_hp = [float(MAX_HITS), float(MAX_HITS)]
@@ -122,8 +121,12 @@ class Battle:
         self.q = (self.qm_attack if mode == "attack" else self.qm_defend).next()
         self.mode = mode
         self.typed = ""
-        self.q_left = ANSWER_TIME
-        self.last_tick = int(ANSWER_TIME)
+        # Blocking the final boss gives less time, and the counter window shrinks with it.
+        boss = mode == "defend" and self.c.fd.boss
+        self.q_time = BOSS_ANSWER_TIME if boss else ANSWER_TIME
+        self.counter_window = COUNTER_WINDOW * self.q_time / ANSWER_TIME
+        self.q_left = self.q_time
+        self.last_tick = int(self.q_time)
         self.result = None
         (self.p if mode == "attack" else self.c).play("charge")
         self.set_state("question")
@@ -132,7 +135,7 @@ class Battle:
     def submit(self, timeout=False):
         q = self.q
         correct = (not timeout) and self.typed != "" and int(self.typed) == q.answer
-        elapsed = ANSWER_TIME - self.q_left
+        elapsed = self.q_time - self.q_left
         st = self.game.stats
         st["asked"] += 1
         if correct:
@@ -148,7 +151,7 @@ class Battle:
         else:
             att, dfd = self.c, self.p
             outcome = "block" if correct else "hit"
-            counter = correct and elapsed <= COUNTER_WINDOW
+            counter = correct and elapsed <= self.counter_window
         move = random.choice(ATTACK_MOVES)
         self.exchange = {"att": att, "dfd": dfd, "outcome": outcome, "counter": counter,
                          "counter_t": None, "counter_phase": False, "dodged": False, "ko": None}
@@ -224,7 +227,7 @@ class Battle:
             if passes:
                 self.impact(False)
             self.fx.projectiles.append(Projectile(
-                hx, hy, tx, actor.facing, actor.fd.theme, DISPLAY[actor.fd.op], font(56),
+                hx, hy, tx, actor.facing, actor.fd.theme, DISPLAY[self.q.op], font(56),
                 lambda: self.impact(True), passes))
         elif e == "land":
             x = actor.point("hip")[0]
@@ -253,9 +256,6 @@ class Battle:
                     self.type_digit(ev.unicode)
                 elif ev.key == pygame.K_BACKSPACE:
                     self.typed = self.typed[:-1]
-            elif self.state == "neutral" and self.player_turn:
-                if ev.key in (pygame.K_SPACE, pygame.K_a, pygame.K_RETURN, pygame.K_KP_ENTER):
-                    self.ask("attack")
         elif ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 1:
             if self.paused:
                 self.paused = False
@@ -268,8 +268,6 @@ class Battle:
                     self.typed = self.typed[:-1]
                 elif k:
                     self.type_digit(k)
-            elif self.state == "neutral" and self.player_turn and self.attack_btn.hit(ev.pos):
-                self.ask("attack")
 
     def type_digit(self, d):
         """The answer is checked as soon as it has as many digits as the
@@ -290,9 +288,9 @@ class Battle:
         for a in (self.p, self.c):
             for e in a.update(dt):
                 self.on_event(a, e)
-            if a.fd.shadow and random.random() < 0.5:
+            if a.fd.boss and random.random() < 0.5:
                 x, y = a.point("hip")
-                self.fx.aura(x, y + 40, (150, 40, 220), 70)
+                self.fx.aura(x, y + 40, (130, 70, 210), 70)
         self.fx.update(dt)
         if self.result:
             self.result["t"] += dt
@@ -326,9 +324,9 @@ class Battle:
                 self.set_state("timeup")
                 self.game.audio.play("ko")
             else:
-                self.cpu_timer -= dt
-                if self.cpu_timer <= 0:
-                    self.ask("defend")
+                self.wait -= dt
+                if self.wait <= 0:
+                    self.ask(self.next_mode)
         elif s == "question":
             self.q_left -= dt
             sec = int(math.ceil(self.q_left))
@@ -357,12 +355,8 @@ class Battle:
                 if ex["ko"] is not None:
                     self.set_state("ko")
                 else:
-                    if self.mode == "attack":
-                        self.player_turn = False
-                        self.cpu_timer = 0.9
-                    else:
-                        self.player_turn = True
-                        self.cpu_timer = CPU_WAIT[self.level]
+                    self.next_mode = "defend" if self.mode == "attack" else "attack"
+                    self.wait = TURN_PAUSE
                     self.set_state("neutral")
         elif s in ("ko", "timeup"):
             if self.state_t > 2.0:
@@ -473,13 +467,6 @@ class Battle:
             panel(surf, self.PAUSE_RECT, (30, 30, 60), 200, WHITE, 10, 2)
             pygame.draw.rect(surf, WHITE, (W - 53, 133, 8, 30))
             pygame.draw.rect(surf, WHITE, (W - 39, 133, 8, 30))
-        if self.state == "neutral" and self.player_turn:
-            pulse = (math.sin(self.state_t * 6) + 1) / 2
-            if g.touch:
-                self.attack_btn.draw(surf, pulse)
-            else:
-                col = (255, int(200 + 55 * pulse), 80)
-                text(surf, "Press SPACE to ATTACK!", 54, col, center=(W // 2, H - 80), ow=4)
 
     def draw_question(self, surf):
         g = self.game
@@ -491,7 +478,7 @@ class Battle:
         if attack:
             head = f"ATTACK with {DISPLAY[self.p.fd.op]} !"
         else:
-            head = f"DEFEND!  Block the {OP_NAMES[self.c.fd.op].upper()} attack!"
+            head = f"DEFEND!  Block the {OP_NAMES[self.q.op].upper()} attack!"
         text(surf, head, 38, border, center=(cx, top + 26))
         text(surf, self.q.text, 88, WHITE, center=(cx, top + 82), ow=4)
         box = pygame.Rect(cx - 110, top + 118, 220, 50)
@@ -501,13 +488,13 @@ class Battle:
         slots = self.typed + "_" * (len(str(self.q.answer)) - len(self.typed))
         text(surf, " ".join(slots), 60, (20, 20, 40), center=box.center, ow=0)
         # timer bar
-        k = max(0.0, self.q_left / ANSWER_TIME)
+        k = max(0.0, self.q_left / self.q_time)
         bar = pygame.Rect(rect.x + 20, rect.bottom - 18, int((rect.w - 40) * k), 10)
         col = GREEN if k > 0.5 else (255, 200, 40) if k > 0.25 else RED
         pygame.draw.rect(surf, (50, 40, 60), (rect.x + 20, rect.bottom - 18, rect.w - 40, 10), border_radius=5)
         pygame.draw.rect(surf, col, bar, border_radius=5)
         text(surf, f"{self.q_left:0.1f}s", 34, col, midright=(rect.right - 18, box.centery))
-        if not attack and k * ANSWER_TIME >= ANSWER_TIME - COUNTER_WINDOW:
+        if not attack and self.q_left >= self.q_time - self.counter_window:
             text(surf, "FAST = COUNTER!", 26, (255, 160, 220), midleft=(rect.x + 16, box.centery))
         if g.touch:
             self.keypad.draw(surf, 1 / 60)

@@ -218,6 +218,11 @@ HAIR = {
                   (0.82, -0.86), (1.07, -0.35), (1.04, 0.05), (0.88, -0.1), (0.78, 0.1),
                   (0.62, -0.16), (0.44, 0.02), (0.28, -0.2), (0.08, -0.06), (-0.12, -0.22),
                   (-0.28, 0.1), (-0.3, 0.58), (-0.5, 0.66), (-0.62, 0.35), (-0.84, 0.5)],
+    # ninja hood: covers the head and ear, open at the eyes (Ryu's mask covers the rest)
+    "hood": [(-0.62, 0.95), (-0.98, 0.7), (-1.15, 0.15), (-1.08, -0.45), (-0.75, -0.95),
+             (-0.15, -1.17), (0.45, -1.1), (0.9, -0.78), (1.1, -0.35), (1.06, -0.14),
+             (0.7, -0.22), (0.3, -0.26), (-0.05, -0.22), (-0.3, -0.05), (-0.42, 0.3),
+             (-0.36, 0.7)],
 }
 
 FACE = ([(math.cos(math.radians(a)), math.sin(math.radians(a))) for a in range(160, 385, 15)]
@@ -227,7 +232,7 @@ FACE = ([(math.cos(math.radians(a)), math.sin(math.radians(a))) for a in range(1
 class Rig:
     def __init__(self, fd):
         self.fd = fd
-        self.style = fd.key.replace("shadow_", "")
+        self.style = fd.key
         h = fd.height
         fem = fd.female
         self.h = h
@@ -240,7 +245,8 @@ class Rig:
         self.col = {
             "uarm": {"mira": skin}.get(s, f.top),
             "farm": {"kai": skin, "luna": f.top2, "mira": f.top2}.get(s, f.top),
-            "fist": {"kai": f.top2, "dax": f.boots, "luna": f.top2, "mira": f.top2}[s],
+            "fist": {"kai": f.top2, "dax": f.boots, "luna": f.top2, "mira": f.top2,
+                     "ryu": f.boots}[s],
             "thigh": {"mira": skin}.get(s, f.pants),
             "shin": {"mira": f.boots}.get(s, f.pants),
             "boot": {"luna": f.top2}.get(s, f.boots),
@@ -346,7 +352,7 @@ class Rig:
         if self.style == "kai":  # sleeve cuff
             pen.capsule(S(_lerp(sh, el, 0.75)), S(el), r2 * sc * 1.15, r2 * sc * 1.1,
                         darker(self.fd.top, k), shade=False)
-        if self.style in ("luna", "dax"):
+        if self.style in ("luna", "dax", "ryu"):
             pen.capsule(S(_lerp(el, ha, 0.45)), S(_lerp(el, ha, 0.92)), r4 * sc * 1.15,
                         r4 * sc * 1.15, darker(self.fd.accent if self.style == "luna"
                                                else self.fd.top2, k), shade=False)
@@ -369,7 +375,7 @@ class Rig:
                 _add(_add(an, (fx, fy), 6), (dx, dy), -5)]
         pen.chain([(S(hp), S(kn), r1 * sc, r2 * sc, ct), (S(kn), S(an), r3 * sc, r4 * sc, cs)])
         pen.poly([S(q) for q in foot], cb)
-        if self.style in ("dax", "mira", "luna"):
+        if self.style in ("dax", "mira", "luna", "ryu"):
             top = _lerp(kn, an, 0.15 if self.style == "mira" else 0.45)
             pen.capsule(S(top), S(an), r4 * sc * 1.12, r4 * sc * 1.05, cb)
         elif self.style == "kai":  # gi pant cuff
@@ -424,6 +430,11 @@ class Rig:
         elif s == "mira":
             pen.poly([at(1.02, 11), at(0.86, 18), at(0.82, 6), at(0.9, -2), at(1.02, -10)], fd.top2)
             pen.circle(at(0.8, 9), 4.5 * sc, fd.accent)
+        elif s == "ryu":
+            pen.poly([at(0.98, 12), at(0.8, 19), at(0.52, 8), at(0.52, -3), at(0.98, -4)], fd.top2)
+            pen.poly([at(1.0, -15), at(1.0, -8), at(0.3, 16), at(0.3, 9)], (78, 52, 40))
+            pen.poly([at(0.33, 15), at(0.33, -15), at(0.18, -15), at(0.18, 15)], fd.accent)
+            pen.ribbon([at(0.26, 13), at(0.1, 19), at(-0.08, 16)], [6 * sc, 5 * sc, 3 * sc], fd.accent)
 
     def _back_layer(self, pen, S, HL, J, t, wind, sc):
         fd, s, R = self.fd, self.style, self.R
@@ -458,6 +469,18 @@ class Rig:
             for ph, base in ((0.0, 60), (1.7, 80)):
                 pts = chain(sash, base, 10 * self.h, 5, 16, ph, 5.0, head=False)
                 pen.ribbon(pts, [w * sc for w in (7, 8, 8, 7, 5, 2)], fd.accent)
+        elif s == "ryu":
+            hip, up, fw, tl = J["hip"], J["up"], J["fwd"], self.L["torso"]
+            low = _add(_add(hip, up, 0.2 * tl), fw, 22)
+            top = _add(_add(J["neck"], up, 22), fw, -46)
+            guard = _lerp(low, top, 0.72)
+            pen.capsule(S(low), S(guard), 5.5 * sc, 5.5 * sc, (70, 30, 35))
+            pen.capsule(S(guard), S(top), 4.5 * sc, 4.0 * sc, fd.top2)
+            pen.circle(S(guard), 7 * sc, (215, 175, 70))
+            a = HL(-0.98, -0.5)
+            for ph, base in ((0.0, 70), (1.2, 88)):
+                pts = chain(a, base, 9 * self.h, 6, 20, ph, 6.0)
+                pen.ribbon(pts, [w * sc for w in (6, 7, 7, 6, 5, 4, 2)], fd.accent)
         elif s == "mira":
             for anchor, base, ph, k in (((-0.2, -0.95), 34, 1.1, 0.85), ((-0.62, -0.72), 20, 0.0, 1.0)):
                 a = HL(*anchor)
@@ -480,7 +503,7 @@ class Rig:
         # nose & mouth
         pen.poly([H(0.86, 0.38), H(0.94, 0.5), H(0.84, 0.52)], darker(fd.skin, 0.75), outline=False)
         self._mouth(pen, H, expr)
-        if fem and not fd.shadow:
+        if fem:
             for cx in (0.18, 0.72):
                 pts = [H(cx + 0.13 * math.cos(a), 0.58 + 0.06 * math.sin(a))
                        for a in [i * math.pi / 6 for i in range(12)]]
@@ -504,6 +527,16 @@ class Rig:
         elif s == "luna":
             pen.poly([H(-0.8, -0.82), H(-0.45, -1.02), H(-0.38, -0.86), H(-0.72, -0.66)],
                      fd.accent)
+        elif s == "ryu":
+            band = [H(-1.1, -0.42), H(-0.3, -0.76), H(0.5, -0.72), H(1.08, -0.36),
+                    H(1.08, -0.16), H(0.5, -0.5), H(-0.3, -0.54), H(-1.12, -0.2)]
+            pen.poly(band, fd.accent)
+            plate = [H(0.28, -0.76), H(0.9, -0.56), H(0.96, -0.26), H(0.32, -0.46)]
+            pen.poly(plate, (200, 205, 218))
+            pen.circle(H(0.62, -0.5), 0.07 * self.R * sc, (120, 125, 140))
+            mask = [H(-0.42, 0.47), H(0.2, 0.47), H(0.99, 0.42), H(1.0, 0.58), H(0.75, 0.9),
+                    H(0.42, 1.07), H(0.05, 1.03), H(-0.38, 0.88), H(-0.5, 0.64)]
+            pen.poly(mask, mix(fd.hair, fd.top2, 0.35))
 
     def _star(self, pen, c, r, color, t):
         pts = []
@@ -537,11 +570,6 @@ class Rig:
                 k = -1 if expr == "happy" else 1
                 pts = [H(cx - ew, cy + 0.02 * k), H(cx, cy - 0.07 * k), H(cx + ew, cy + 0.02 * k)]
                 pygame_lines(pen, pts, 0.05 * self.R)
-                continue
-            if fd.shadow:
-                pen.poly(self._ellipse(H, cx, cy, ew, h * 0.7), (255, 40, 60), outline=True)
-                pen.poly(self._ellipse(H, cx, cy, ew * 0.45, h * 0.35), (255, 230, 230),
-                         outline=False)
                 continue
             pen.poly(self._ellipse(H, cx, cy, ew, h), (255, 255, 255), outline=False)
             ix = cx + ew * 0.18
