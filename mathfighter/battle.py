@@ -5,8 +5,9 @@ import random
 
 import pygame
 
-from .config import (ANSWER_TIME, BOSS_ANSWER_TIME, COUNTER_WINDOW, CPU_HOME_X, GOLD, GREEN, GROUND_Y,
-                     H, MAX_HITS, PLAYER_HOME_X, RED, ROUND_TIME, ROUNDS_TO_WIN, TURN_PAUSE, W, WHITE)
+from .config import (ANSWER_TIME, BONUS_LEVEL, BOSS_ANSWER_TIME, COUNTER_WINDOW, CPU_HOME_X,
+                     FRACTION_ANSWER_TIME, GOLD, GREEN, GROUND_Y, H, MAX_HITS, PLAYER_HOME_X, RED,
+                     ROUND_TIME, ROUNDS_TO_WIN, TURN_PAUSE, W, WHITE)
 from .draw import fill_circle, lighter
 from .effects import Effects, Projectile
 from .mathq import DISPLAY, OP_NAMES, QuestionMaker
@@ -75,6 +76,9 @@ class Actor:
 
 class Battle:
     PAUSE_RECT = pygame.Rect(W - 70, 120, 56, 56)
+    # tap targets on the pause screen
+    MUSIC_ROW = pygame.Rect(W // 2 - 280, H // 2 + 18, 560, 46)
+    QUIT_ROW = pygame.Rect(W // 2 - 280, H // 2 + 68, 560, 46)
 
     def __init__(self, game):
         self.game = game
@@ -121,9 +125,11 @@ class Battle:
         self.q = (self.qm_attack if mode == "attack" else self.qm_defend).next()
         self.mode = mode
         self.typed = ""
-        # Blocking the final boss gives less time, and the counter window shrinks with it.
-        boss = mode == "defend" and self.c.fd.boss
-        self.q_time = BOSS_ANSWER_TIME if boss else ANSWER_TIME
+        # Fractions get more time. Blocking the final boss gives less (3 s instead of 5),
+        # and the counter window shrinks with it.
+        self.q_time = FRACTION_ANSWER_TIME if self.q.is_fraction else ANSWER_TIME
+        if mode == "defend" and self.c.fd.boss:
+            self.q_time *= BOSS_ANSWER_TIME / ANSWER_TIME
         self.counter_window = COUNTER_WINDOW * self.q_time / ANSWER_TIME
         self.q_left = self.q_time
         self.last_tick = int(self.q_time)
@@ -134,7 +140,7 @@ class Battle:
 
     def submit(self, timeout=False):
         q = self.q
-        correct = (not timeout) and self.typed != "" and int(self.typed) == q.answer
+        correct = (not timeout) and self.typed == q.digits
         elapsed = self.q_time - self.q_left
         st = self.game.stats
         st["asked"] += 1
@@ -248,8 +254,6 @@ class Battle:
                     self.paused = False
                 elif ev.key == pygame.K_q:
                     g.to_title()
-                elif ev.key == pygame.K_m:
-                    g.audio.toggle()
                 return
             if self.state == "question":
                 if ev.unicode and ev.unicode.isdigit():
@@ -258,7 +262,12 @@ class Battle:
                     self.typed = self.typed[:-1]
         elif ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 1:
             if self.paused:
-                self.paused = False
+                if self.MUSIC_ROW.collidepoint(ev.pos):
+                    g.toggle_music()
+                elif self.QUIT_ROW.collidepoint(ev.pos):
+                    g.to_title()
+                else:
+                    self.paused = False
                 return
             if g.touch and self.PAUSE_RECT.collidepoint(ev.pos):
                 self.paused = True
@@ -273,7 +282,7 @@ class Battle:
         """The answer is checked as soon as it has as many digits as the
         right answer, so there is no ENTER to press."""
         self.typed += d
-        if len(self.typed) >= len(str(self.q.answer)):
+        if len(self.typed) >= len(self.q.digits):
             self.submit()
 
     # ------------------------------------------------------------- update --
@@ -417,9 +426,10 @@ class Battle:
         if self.paused:
             panel(surf, (W // 2 - 300, H // 2 - 160, 600, 320), (10, 10, 30), 230)
             text(surf, "PAUSED", 90, GOLD, center=(W // 2, H // 2 - 90))
+            music = "ON" if self.game.audio.music_on else "OFF"
             text(surf, "ENTER / tap  -  Resume", 40, center=(W // 2, H // 2 - 10))
-            text(surf, "M  -  Sound on/off", 40, center=(W // 2, H // 2 + 40))
-            text(surf, "Q  -  Quit to title", 40, center=(W // 2, H // 2 + 90))
+            text(surf, f"M  -  Music: {music}  (sounds stay on)", 40, center=self.MUSIC_ROW.center)
+            text(surf, "Q  -  Quit to title", 40, center=self.QUIT_ROW.center)
 
     def draw_hud(self, surf):
         g = self.game
@@ -460,7 +470,8 @@ class Battle:
         text(surf, str(int(math.ceil(self.time))), 76, tcol, center=(W // 2, 56))
         label = "FINAL ROUND" if self.round >= 3 else f"ROUND {self.round}"
         text(surf, label, 30, GOLD, center=(W // 2, 112))
-        text(surf, f"STAGE {self.stage_no + 1}: {self.stage.name.upper()}   LEVEL {self.level}", 26,
+        lv = "BONUS LEVEL: FRACTIONS" if self.level >= BONUS_LEVEL else f"LEVEL {self.level}"
+        text(surf, f"STAGE {self.stage_no + 1}: {self.stage.name.upper()}   {lv}", 26,
              (230, 230, 240), center=(W // 2, H - 18))
         # pause button (touch)
         if g.touch:
@@ -485,7 +496,14 @@ class Battle:
         pygame.draw.rect(surf, (250, 250, 255), box, border_radius=10)
         pygame.draw.rect(surf, border, box, 3, border_radius=10)
         # One slot per digit of the answer; the answer is checked when they are full.
-        slots = self.typed + "_" * (len(str(self.q.answer)) - len(self.typed))
+        # A fraction shows its slash: 3/4 is typed 3 then 4.
+        slots, i = [], 0
+        for ch in str(self.q.answer):
+            if ch == "/":
+                slots.append("/")
+            else:
+                slots.append(self.typed[i] if i < len(self.typed) else "_")
+                i += 1
         text(surf, " ".join(slots), 60, (20, 20, 40), center=box.center, ow=0)
         # timer bar
         k = max(0.0, self.q_left / self.q_time)
@@ -494,8 +512,14 @@ class Battle:
         pygame.draw.rect(surf, (50, 40, 60), (rect.x + 20, rect.bottom - 18, rect.w - 40, 10), border_radius=5)
         pygame.draw.rect(surf, col, bar, border_radius=5)
         text(surf, f"{self.q_left:0.1f}s", 34, col, midright=(rect.right - 18, box.centery))
+        hints = []
+        if self.q.is_fraction:
+            hints.append(("SIMPLEST FORM", (150, 230, 255)))
         if not attack and self.q_left >= self.q_time - self.counter_window:
-            text(surf, "FAST = COUNTER!", 26, (255, 160, 220), midleft=(rect.x + 16, box.centery))
+            hints.append(("FAST = COUNTER!", (255, 160, 220)))
+        for i, (hint, hcol) in enumerate(hints):
+            y = box.centery + (i * 2 - len(hints) + 1) * 13
+            text(surf, hint, 26, hcol, midleft=(rect.x + 16, y))
         if g.touch:
             self.keypad.draw(surf, 1 / 60)
 

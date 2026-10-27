@@ -1,7 +1,9 @@
-"""Math question generation for each operation and difficulty level (1-5)."""
+"""Math question generation for each operation and difficulty level: 1-5,
+plus the bonus level 6 (fractions)."""
 
 import random
 from dataclasses import dataclass
+from fractions import Fraction
 
 ADD, SUB, MUL, DIV = "+", "-", "x", "/"
 OPS = (ADD, SUB, MUL, DIV)
@@ -26,19 +28,52 @@ RANGES = {
 }
 
 
+FRACTION_LEVEL = 6
+DENOMS = [2, 3, 4, 5, 6, 8, 10, 12]
+
+
 @dataclass(frozen=True)
 class Question:
-    a: int
-    b: int
+    a: object          # int, or Fraction on the bonus level
+    b: object
     op: str
-    answer: int
+    answer: object
 
     @property
     def text(self):
         return f"{self.a} {DISPLAY[self.op]} {self.b} = ?"
 
+    @property
+    def digits(self):
+        """What the player types: the digits of the answer. A fraction is
+        typed numerator then denominator (3/4 is 3, 4); the slash is shown."""
+        return str(self.answer).replace("/", "")
+
+    @property
+    def is_fraction(self):
+        return isinstance(self.answer, Fraction)
+
+
+def make_fraction_question(op, rng=random):
+    """Bonus level. Answers are proper fractions (between 0 and 1) in
+    simplest form, with small denominators."""
+    while True:
+        d1 = rng.choice(DENOMS)
+        if op in (ADD, SUB):
+            related = [d for d in DENOMS if d != d1 and (d % d1 == 0 or d1 % d == 0)]
+            d2 = d1 if rng.random() < 0.5 or not related else rng.choice(related)
+        else:
+            d1, d2 = rng.choice(DENOMS[:6]), rng.choice(DENOMS[:6])
+        a = Fraction(rng.randint(1, d1 - 1), d1)
+        b = Fraction(rng.randint(1, d2 - 1), d2)
+        r = {ADD: a + b, SUB: a - b, MUL: a * b, DIV: a / b if b else 0}[op]
+        if 0 < r < 1 and r.denominator <= 24:
+            return Question(a, b, op, r)
+
 
 def make_question(op, level, rng=random):
+    if int(level) >= FRACTION_LEVEL:
+        return make_fraction_question(op, rng)
     level = max(1, min(5, int(level)))
     (lo1, hi1), (lo2, hi2) = RANGES[op][level]
     x, y = rng.randint(lo1, hi1), rng.randint(lo2, hi2)

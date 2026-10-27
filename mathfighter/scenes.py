@@ -8,7 +8,7 @@ import pygame
 
 from .battle import Actor
 from .characters import ROSTER
-from .config import __version__, CREDITS_NAME, GOLD, GREEN, H, MAX_LEVEL, RED, W, WHITE
+from .config import __version__, BONUS_LEVEL, CREDITS_NAME, GOLD, GREEN, H, MAX_LEVEL, RED, W, WHITE
 from .draw import darker, fill_circle, fill_poly, lighter, mix, vgradient
 from .effects import Effects, Particle
 from .mathq import ADD, DIV, DISPLAY, MUL, OP_NAMES, SUB, make_question
@@ -68,6 +68,8 @@ def logo(surf, cy, t):
 
 
 class Title(Scene):
+    MUSIC_BTN = pygame.Rect(W - 230, 16, 214, 50)
+
     def __init__(self, game):
         super().__init__(game)
         self.bg = starfield_bg((20, 10, 60), (120, 40, 110))
@@ -79,7 +81,10 @@ class Title(Scene):
         game.audio.play_music("menu")
 
     def handle(self, ev):
-        if (ev.type == pygame.KEYDOWN and ev.key in CONFIRM) or \
+        if ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 1 and self.MUSIC_BTN.collidepoint(ev.pos):
+            self.game.toggle_music()
+            self.game.audio.play("select")
+        elif (ev.type == pygame.KEYDOWN and ev.key in CONFIRM) or \
                 (ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 1):
             self.game.audio.play("confirm")
             self.game.goto(HowTo(self.game) if not self.game.seen_howto else Difficulty(self.game))
@@ -102,7 +107,10 @@ class Title(Scene):
         if blink(self.t):
             msg = "TAP TO START" if self.game.touch else "PRESS ENTER TO START"
             text(surf, msg, 56, WHITE, center=(W // 2, 335), ow=4)
-        text(surf, "F11: Full screen    M: Sound on/off    ESC: Pause", 26, (200, 190, 230),
+        on = self.game.audio.music_on
+        panel(surf, self.MUSIC_BTN, (40, 110, 70) if on else (90, 40, 60), 220, WHITE, 12, 2)
+        text(surf, "MUSIC: ON" if on else "MUSIC: OFF", 32, center=self.MUSIC_BTN.center, ow=2)
+        text(surf, "F11: Full screen    M: Music on/off    ESC: Pause", 26, (200, 190, 230),
              center=(W // 2, H - 20), ow=2)
         text(surf, f"v{__version__}", 22, (170, 160, 200), bottomright=(W - 10, H - 6), ow=2)
 
@@ -141,18 +149,20 @@ class HowTo(Scene):
 
 
 class Difficulty(Scene):
-    NAMES = ["Rookie", "Fighter", "Warrior", "Master", "Legend"]
-    COLORS = [(80, 200, 120), (100, 180, 255), (255, 200, 60), (255, 130, 50), (230, 50, 80)]
+    NAMES = ["Rookie", "Fighter", "Warrior", "Master", "Legend", "Fractions"]
+    COLORS = [(80, 200, 120), (100, 180, 255), (255, 200, 60), (255, 130, 50), (230, 50, 80),
+              (190, 100, 255)]
 
     def __init__(self, game, message=None):
         super().__init__(game)
-        self.sel = game.level
+        self.top = BONUS_LEVEL if game.bonus_unlocked else MAX_LEVEL
+        self.sel = min(game.level, self.top)
         self.message = message
         self.bg = starfield_bg((30, 10, 50), (90, 30, 90))
         rng = random.Random(9)
         self.examples = {lv: "    ".join(make_question(op, lv, rng).text.replace(" = ?", "")
-                                       for op in (ADD, SUB, MUL, DIV)) for lv in range(1, 6)}
-        self.rects = [pygame.Rect(140 + i * 210, 250, 170, 200) for i in range(5)]
+                                       for op in (ADD, SUB, MUL, DIV)) for lv in range(1, BONUS_LEVEL + 1)}
+        self.rects = [pygame.Rect(85 + i * 190, 250, 160, 200) for i in range(BONUS_LEVEL)]
         game.audio.play_music("menu")
 
     def choose(self):
@@ -167,9 +177,9 @@ class Difficulty(Scene):
                 self.sel = max(1, self.sel - 1)
                 g.audio.play("select")
             elif ev.key in (pygame.K_RIGHT, pygame.K_d):
-                self.sel = min(MAX_LEVEL, self.sel + 1)
+                self.sel = min(self.top, self.sel + 1)
                 g.audio.play("select")
-            elif ev.unicode in ("1", "2", "3", "4", "5"):
+            elif ev.unicode and ev.unicode.isdigit() and 1 <= int(ev.unicode) <= self.top:
                 self.sel = int(ev.unicode)
                 g.audio.play("select")
             elif ev.key in CONFIRM:
@@ -178,7 +188,7 @@ class Difficulty(Scene):
                 g.to_title()
         elif ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 1:
             for i, r in enumerate(self.rects):
-                if r.collidepoint(ev.pos):
+                if r.collidepoint(ev.pos) and i + 1 <= self.top:
                     if self.sel == i + 1:
                         self.choose()
                     else:
@@ -191,22 +201,31 @@ class Difficulty(Scene):
         if self.message:
             text(surf, self.message, 40, GREEN, center=(W // 2, 160), ow=3)
         else:
-            text(surf, "1 = easy   ...   5 = hardest", 40, WHITE, center=(W // 2, 160), ow=3)
+            sub = ("1 = easy   ...   5 = hardest   6 = BONUS!" if self.top == BONUS_LEVEL
+                   else "1 = easy   ...   5 = hardest      Beat Legend to unlock a BONUS level!")
+            text(surf, sub, 40, WHITE, center=(W // 2, 160), ow=3)
         for i, r in enumerate(self.rects):
             lv = i + 1
             on = lv == self.sel
+            locked = lv > self.top
             rr = r.inflate(24, 24) if on else r
             if on:
                 rr = rr.move(0, int(math.sin(self.t * 5) * 4))
-            panel(surf, rr, self.COLORS[i] if on else darker(self.COLORS[i], 0.45), 235,
+            col = (70, 70, 85) if locked else self.COLORS[i]
+            panel(surf, rr, col if on else darker(col, 0.45), 235,
                   WHITE if on else (150, 150, 170), 18, 4 if on else 2)
-            text(surf, str(lv), 120, WHITE, center=(rr.centerx, rr.centery - 20), ow=5)
-            text(surf, self.NAMES[i], 38, WHITE, center=(rr.centerx, rr.bottom - 32), ow=3)
-        panel(surf, (140, 500, W - 280, 110), (10, 10, 30), 200)
-        text(surf, f"Level {self.sel}: {self.NAMES[self.sel - 1]}", 44, self.COLORS[self.sel - 1],
-             center=(W // 2, 530))
+            text(surf, "?" if locked else str(lv), 120, (150, 150, 165) if locked else WHITE,
+                 center=(rr.centerx, rr.centery - 20), ow=5)
+            name = "Locked" if locked else ("BONUS" if lv == BONUS_LEVEL else self.NAMES[i])
+            text(surf, name, 38, (170, 170, 185) if locked else WHITE,
+                 center=(rr.centerx, rr.bottom - 32), ow=3)
+        panel(surf, (110, 500, W - 220, 110), (10, 10, 30), 200)
+        title = f"Level {self.sel}: {self.NAMES[self.sel - 1]}"
+        if self.sel == BONUS_LEVEL:
+            title = "BONUS LEVEL: Fractions  (answer in simplest form)"
+        text(surf, title, 44, self.COLORS[self.sel - 1], center=(W // 2, 530))
         text(surf, "Examples:   " + self.examples[self.sel], 38, WHITE, center=(W // 2, 580))
-        text(surf, "LEFT / RIGHT or 1-5 to choose,  ENTER to start", 32, (210, 200, 240),
+        text(surf, f"LEFT / RIGHT or 1-{self.top} to choose,  ENTER to start", 32, (210, 200, 240),
              center=(W // 2, H - 40), ow=2)
 
 
@@ -439,7 +458,7 @@ class Champion(Scene):
         self.actor.play("victory")
         self.fx = Effects()
         self.bg = starfield_bg((10, 10, 50), (60, 30, 90))
-        game.audio.play_music("menu")
+        game.audio.play_music("champion")
         game.audio.play("confirm")
 
     def handle(self, ev):
@@ -497,10 +516,15 @@ class Credits(Scene):
                 self.t = self.scroll_time
             else:
                 g = self.game
-                old = g.level
-                g.level = min(MAX_LEVEL, g.level + 1)
-                msg = (f"Champion! Now try level {g.level}!" if g.level > old
-                       else "You beat the hardest level! Play again?")
+                if g.level >= BONUS_LEVEL:
+                    msg = "You beat the BONUS level! You are a true Math Master!"
+                elif g.level == MAX_LEVEL:
+                    g.unlock_bonus()
+                    g.level = BONUS_LEVEL
+                    msg = "BONUS LEVEL UNLOCKED: FRACTIONS!"
+                else:
+                    g.level += 1
+                    msg = f"Champion! Now try level {g.level}!"
                 g.audio.play("confirm")
                 g.goto(Difficulty(g, msg))
 

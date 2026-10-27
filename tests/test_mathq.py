@@ -37,6 +37,19 @@ class MathQuestionTests(unittest.TestCase):
             self.assertNotEqual(q, prev)
             prev = q
 
+    def test_fractions_bonus_level(self):
+        from fractions import Fraction
+        rng = random.Random(5)
+        for op in (ADD, SUB, MUL, DIV):
+            for _ in range(300):
+                q = make_question(op, 6, rng)
+                self.assertIsInstance(q.answer, Fraction)
+                self.assertTrue(0 < q.answer < 1)          # proper, never whole
+                real = {ADD: q.a + q.b, SUB: q.a - q.b, MUL: q.a * q.b, DIV: q.a / q.b}[op]
+                self.assertEqual(real, q.answer)
+                n, d = str(q.answer).split("/")           # simplest form
+                self.assertEqual(q.digits, n + d)
+
     def test_mixed_uses_all_four_operations(self):
         qm = QuestionMaker(MIX, 3, random.Random(4))
         self.assertEqual({qm.next().op for _ in range(200)}, {ADD, SUB, MUL, DIV})

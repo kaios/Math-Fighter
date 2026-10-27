@@ -7,6 +7,7 @@ import sys
 import pygame
 
 from .config import FPS, H, TITLE, W
+from . import save
 from .characters import ROSTER, RYU
 
 ON_ANDROID = "ANDROID_ARGUMENT" in os.environ or hasattr(sys, "getandroidapilevel")
@@ -22,8 +23,9 @@ class Game:
         flags = pygame.SCALED | (pygame.FULLSCREEN if ON_ANDROID else pygame.RESIZABLE)
         self.screen = pygame.display.set_mode((W, H), flags)
         self.clock = pygame.time.Clock()
+        self.save = save.load()
         from .audio import Audio  # after pygame.init so the mixer is ready
-        self.audio = Audio()
+        self.audio = Audio(music_on=self.save.get("music", True))
         self.touch = ON_ANDROID
         self.seen_howto = False
         self.level = 1
@@ -34,6 +36,19 @@ class Game:
         from .scenes import Title
         self.scene = Title(self)
         self.running = True
+
+    @property
+    def bonus_unlocked(self):
+        return bool(self.save.get("bonus"))
+
+    def unlock_bonus(self):
+        self.save["bonus"] = True
+        save.store(self.save)
+
+    def toggle_music(self):
+        """Music on/off; sound effects always stay on. Remembered between games."""
+        self.save["music"] = self.audio.toggle_music()
+        save.store(self.save)
 
     def reset_stats(self):
         self.stats = {"asked": 0, "correct": 0, "best": 99.0}
@@ -81,9 +96,8 @@ class Game:
                     self.running = False
                 elif ev.type == pygame.KEYDOWN and ev.key == pygame.K_F11:
                     pygame.display.toggle_fullscreen()
-                elif ev.type == pygame.KEYDOWN and ev.key == pygame.K_m and \
-                        type(self.scene).__name__ != "Battle":
-                    self.audio.toggle()
+                elif ev.type == pygame.KEYDOWN and ev.key == pygame.K_m:
+                    self.toggle_music()
                 elif ev.type == pygame.KEYDOWN and ev.key == pygame.K_AC_BACK:
                     self.to_title()
                 else:

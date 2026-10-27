@@ -5,7 +5,7 @@
 W, H = 1280, 720
 FPS = 60
 TITLE = "Math Fighter"
-__version__ = "1.2.0"
+__version__ = "1.3.0"
 
 # Rules
 ANSWER_TIME = 5.0        # seconds to answer each question
@@ -15,7 +15,9 @@ TURN_PAUSE = 0.8         # seconds between one exchange and the next question
 ROUND_TIME = 99          # seconds per round
 MAX_HITS = 8             # 8 strikes and you are out
 ROUNDS_TO_WIN = 2        # best of 3
-MAX_LEVEL = 5
+MAX_LEVEL = 5            # Legend; beating it unlocks the bonus level
+BONUS_LEVEL = 6          # fractions
+FRACTION_ANSWER_TIME = 8.0  # fractions take longer to work out and type
 
 # Arena
 GROUND_Y = 610

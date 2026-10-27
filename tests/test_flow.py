@@ -1,14 +1,16 @@
 """Headless playthroughs of the whole game flow with a bot answering questions."""
 
 import os
+import tempfile
 import unittest
 
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
+os.environ["MATHFIGHTER_DATA"] = tempfile.mkdtemp(prefix="mathfighter-test-")  # don't touch the real save
 
 import pygame  # noqa: E402
 
-from mathfighter import scenes  # noqa: E402
+from mathfighter import save, scenes  # noqa: E402
 from mathfighter.battle import Battle  # noqa: E402
 from mathfighter.config import MAX_HITS  # noqa: E402
 from mathfighter.game import Game  # noqa: E402
@@ -28,6 +30,7 @@ class FlowTests(unittest.TestCase):
     def setUp(self):
         self.g = self.game
         self.g.level = 1
+        self.g.save.clear()
         self.g.seen_howto = False
         self.g.to_title()
 
@@ -175,6 +178,52 @@ class FlowTests(unittest.TestCase):
         b.ask("attack")
         self.assertEqual(b.q.op, b.p.fd.op)
         self.assertEqual(b.q_time, 5.0)
+
+
+    def test_beating_legend_unlocks_fractions_bonus_level(self):
+        g = self.g
+        self.assertFalse(g.bonus_unlocked)
+        d = scenes.Difficulty(g)
+        self.assertEqual(d.top, 5)
+        g.level = 5
+        g.goto(scenes.Credits(g))
+        press(g, pygame.K_RETURN)   # skip scroll
+        self.tick(60)
+        press(g, pygame.K_RETURN)
+        self.assertIsInstance(g.scene, scenes.Difficulty)
+        self.assertEqual(g.level, 6)
+        self.assertTrue(save.load().get("bonus"))      # remembered for next time
+        self.assertEqual(g.scene.top, 6)
+        g.scene.handle(pygame.event.Event(pygame.KEYDOWN, key=0, unicode="6", mod=0))
+        self.assertEqual(g.scene.sel, 6)
+
+    def test_fraction_answers_are_typed_numerator_then_denominator(self):
+        self.g.unlock_bonus()
+        self.to_battle(level=6, pick=0)
+        b = self.g.scene
+        for _ in range(2000):
+            if b.state == "neutral":
+                break
+            if b.state == "question":
+                for ch in b.q.digits:
+                    press(self.g, 0, ch)
+            self.tick()
+        b.ask("attack")
+        self.assertTrue(b.q.is_fraction)
+        self.assertEqual(b.q_time, 8.0)
+        num, den = str(b.q.answer).split("/")
+        for ch in num + den:
+            press(self.g, 0, ch)
+        self.assertTrue(b.result["correct"])
+
+    def test_music_toggle_keeps_sound_effects(self):
+        g = self.g
+        on = g.audio.music_on
+        g.toggle_music()
+        self.assertEqual(g.audio.music_on, not on)
+        self.assertEqual(save.load().get("music"), not on)
+        g.toggle_music()
+        self.assertEqual(g.audio.music_on, on)
 
 
 if __name__ == "__main__":
