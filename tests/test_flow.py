@@ -68,7 +68,6 @@ class FlowTests(unittest.TestCase):
                     ans = sc.q.answer if correct else sc.q.answer + 1
                     for ch in str(ans):
                         press(g, 0, ch)
-                    press(g, pygame.K_RETURN)
             elif isinstance(sc, (scenes.Champion, scenes.GameOver)):
                 return sc, seen
             self.tick()
@@ -111,8 +110,8 @@ class FlowTests(unittest.TestCase):
             if b.state == "neutral":
                 break
             if b.state == "question":
-                press(self.g, 0, str(b.q.answer))
-                press(self.g, pygame.K_RETURN)
+                for ch in str(b.q.answer):
+                    press(self.g, 0, ch)
             self.tick()
         # wait (no input) for the CPU to attack and the 5 second timer to run out
         for _ in range(2000):
@@ -122,6 +121,29 @@ class FlowTests(unittest.TestCase):
         self.assertEqual(b.p.hits, 1)
         self.assertLess(b.p.hits, MAX_HITS)
         self.assertTrue(b.result["timeout"])
+
+    def test_answers_check_without_enter_and_defense_uses_attacker_math(self):
+        self.to_battle(level=3, pick=0)
+        b = self.g.scene
+        for _ in range(2000):
+            if b.state == "neutral":
+                break
+            if b.state == "question":
+                for ch in str(b.q.answer):
+                    press(self.g, 0, ch)
+            self.tick()
+        self.assertNotEqual(b.p.fd.op, b.c.fd.op)
+        b.ask("attack")
+        self.assertEqual(b.q.op, b.p.fd.op)
+        digits = str(b.q.answer)
+        for ch in digits[:-1]:
+            press(self.g, 0, ch)
+            self.assertEqual(b.state, "question")   # not enough digits yet
+        press(self.g, 0, digits[-1])
+        self.assertEqual(b.state, "action")         # checked on the last digit
+        self.assertTrue(b.result["correct"])
+        b.ask("defend")
+        self.assertEqual(b.q.op, b.c.fd.op)
 
 
 if __name__ == "__main__":

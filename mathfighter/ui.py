@@ -69,7 +69,7 @@ def portrait(fd, size=96):
 class Keypad:
     """On-screen number pad. Shown automatically when the game is touched."""
 
-    KEYS = ["7", "8", "9", "4", "5", "6", "1", "2", "3", "DEL", "0", "OK"]
+    KEYS = ["7", "8", "9", "4", "5", "6", "1", "2", "3", "DEL", "0"]
 
     def __init__(self, x=W - 300, y=H - 330, size=88, gap=8):
         self.rects = []
@@ -90,7 +90,7 @@ class Keypad:
         self.pressed_t = max(0.0, self.pressed_t - dt)
         for k, r in self.rects:
             down = self.pressed == k and self.pressed_t > 0
-            col = (90, 200, 120) if k == "OK" else (220, 90, 90) if k == "DEL" else (60, 60, 110)
+            col = (220, 90, 90) if k == "DEL" else (60, 60, 110)
             if down:
                 col = tuple(min(255, c + 70) for c in col)
             panel(surf, r, col, 220, WHITE, 12, 2)

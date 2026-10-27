@@ -9,7 +9,7 @@ from .config import (ANSWER_TIME, COUNTER_WINDOW, CPU_HOME_X, GOLD, GREEN, GROUN
                      PLAYER_HOME_X, RED, ROUND_TIME, ROUNDS_TO_WIN, W, WHITE)
 from .draw import fill_circle, lighter
 from .effects import Effects, Projectile
-from .mathq import DISPLAY, QuestionMaker
+from .mathq import DISPLAY, OP_NAMES, QuestionMaker
 from .sprite import VICTORY, Animator, Rig
 from .stages import STAGES
 from .ui import Button, Keypad, font, panel, portrait, text
@@ -84,7 +84,9 @@ class Battle:
         self.stage = STAGES[game.stage]()
         self.p = Actor(game.player, PLAYER_HOME_X, 1)
         self.c = Actor(game.opponents[game.stage], CPU_HOME_X, -1)
-        self.qm = QuestionMaker(game.player.op, game.level)
+        # Attacking asks your own fighter's math, defending asks the attacker's.
+        self.qm_attack = QuestionMaker(self.p.fd.op, game.level)
+        self.qm_defend = QuestionMaker(self.c.fd.op, game.level)
         self.fx = Effects()
         self.keypad = Keypad()
         self.attack_btn = Button((W // 2 - 140, H - 120, 280, 90), "ATTACK!", (230, 60, 80), 52)
@@ -117,7 +119,7 @@ class Battle:
         self.state, self.state_t = s, 0.0
 
     def ask(self, mode):
-        self.q = self.qm.next()
+        self.q = (self.qm_attack if mode == "attack" else self.qm_defend).next()
         self.mode = mode
         self.typed = ""
         self.q_left = ANSWER_TIME
@@ -247,12 +249,10 @@ class Battle:
                     g.audio.toggle()
                 return
             if self.state == "question":
-                if ev.unicode and ev.unicode.isdigit() and len(self.typed) < 5:
-                    self.typed += ev.unicode
+                if ev.unicode and ev.unicode.isdigit():
+                    self.type_digit(ev.unicode)
                 elif ev.key == pygame.K_BACKSPACE:
                     self.typed = self.typed[:-1]
-                elif ev.key in (pygame.K_RETURN, pygame.K_KP_ENTER) and self.typed:
-                    self.submit()
             elif self.state == "neutral" and self.player_turn:
                 if ev.key in (pygame.K_SPACE, pygame.K_a, pygame.K_RETURN, pygame.K_KP_ENTER):
                     self.ask("attack")
@@ -266,13 +266,17 @@ class Battle:
                 k = self.keypad.hit(ev.pos)
                 if k == "DEL":
                     self.typed = self.typed[:-1]
-                elif k == "OK":
-                    if self.typed:
-                        self.submit()
-                elif k and len(self.typed) < 5:
-                    self.typed += k
+                elif k:
+                    self.type_digit(k)
             elif self.state == "neutral" and self.player_turn and self.attack_btn.hit(ev.pos):
                 self.ask("attack")
+
+    def type_digit(self, d):
+        """The answer is checked as soon as it has as many digits as the
+        right answer, so there is no ENTER to press."""
+        self.typed += d
+        if len(self.typed) >= len(str(self.q.answer)):
+            self.submit()
 
     # ------------------------------------------------------------- update --
     def update(self, dt):
@@ -484,14 +488,18 @@ class Battle:
         rect = pygame.Rect(cx - 300, top, 600, 186)
         border = (255, 200, 60) if attack else (90, 170, 255)
         panel(surf, rect, (15, 10, 35), 225, border, 20, 4)
-        head = f"ATTACK with {DISPLAY[self.p.fd.op]} !" if attack else "DEFEND!  Answer to block!"
+        if attack:
+            head = f"ATTACK with {DISPLAY[self.p.fd.op]} !"
+        else:
+            head = f"DEFEND!  Block the {OP_NAMES[self.c.fd.op].upper()} attack!"
         text(surf, head, 38, border, center=(cx, top + 26))
         text(surf, self.q.text, 88, WHITE, center=(cx, top + 82), ow=4)
         box = pygame.Rect(cx - 110, top + 118, 220, 50)
         pygame.draw.rect(surf, (250, 250, 255), box, border_radius=10)
         pygame.draw.rect(surf, border, box, 3, border_radius=10)
-        cursor = "_" if int(self.state_t * 3) % 2 == 0 else " "
-        text(surf, self.typed + cursor, 60, (20, 20, 40), center=box.center, ow=0)
+        # One slot per digit of the answer; the answer is checked when they are full.
+        slots = self.typed + "_" * (len(str(self.q.answer)) - len(self.typed))
+        text(surf, " ".join(slots), 60, (20, 20, 40), center=box.center, ow=0)
         # timer bar
         k = max(0.0, self.q_left / ANSWER_TIME)
         bar = pygame.Rect(rect.x + 20, rect.bottom - 18, int((rect.w - 40) * k), 10)

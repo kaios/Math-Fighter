@@ -8,7 +8,7 @@ import pygame
 
 from .battle import Actor
 from .characters import ROSTER
-from .config import CREDITS_NAME, GOLD, GREEN, H, MAX_LEVEL, RED, W, WHITE
+from .config import __version__, CREDITS_NAME, GOLD, GREEN, H, MAX_LEVEL, RED, W, WHITE
 from .draw import darker, fill_circle, fill_poly, lighter, mix, vgradient
 from .effects import Effects, Particle
 from .mathq import ADD, DIV, DISPLAY, MUL, OP_NAMES, SUB, make_question
@@ -104,15 +104,16 @@ class Title(Scene):
             text(surf, msg, 56, WHITE, center=(W // 2, 335), ow=4)
         text(surf, "F11: Full screen    M: Sound on/off    ESC: Pause", 26, (200, 190, 230),
              center=(W // 2, H - 20), ow=2)
+        text(surf, f"v{__version__}", 22, (170, 160, 200), bottomright=(W - 10, H - 6), ow=2)
 
 
 class HowTo(Scene):
     LINES = [
         ("Pick a fighter. Each one fights with a different kind of math!", WHITE),
         ("Press SPACE to attack. Answer the question in 5 seconds to land a hit.", GOLD),
-        ("When the CPU attacks, answer fast to BLOCK. Wrong or too slow = you get hit.", (120, 200, 255)),
+        ("When the CPU attacks, answer ITS math question fast to BLOCK. Too slow = hit!", (120, 200, 255)),
         ("Answer a defense question in under 2.5 seconds for a COUNTER attack!", (255, 160, 220)),
-        ("Type the answer with the number keys, then press ENTER.", WHITE),
+        ("Type every digit of the answer (50 is 5 then 0). No ENTER needed!", WHITE),
         ("8 hits and you're down. Win 2 rounds to beat a stage. Each round is 99 seconds.", WHITE),
         ("Win all 4 stages to become the MATH TOURNAMENT CHAMPION!", GREEN),
     ]
