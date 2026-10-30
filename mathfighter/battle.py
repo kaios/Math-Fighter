@@ -7,13 +7,15 @@ import pygame
 
 from .config import (ANSWER_TIME, BONUS_LEVEL, BOSS_ANSWER_TIME, COUNTER_WINDOW, CPU_HOME_X,
                      FRACTION_ANSWER_TIME, GOLD, GREEN, GROUND_Y, H, MAX_HITS, PLAYER_HOME_X, RED,
-                     ROUND_TIME, ROUNDS_TO_WIN, TURN_PAUSE, W, WHITE)
-from .draw import fill_circle, lighter
-from .effects import Effects, Projectile
+                     ROUND_TIME, ROUNDS_TO_WIN, SPECIAL_DAMAGE, SPECIAL_WINDOW, SUPER_WINDOW, TURN_PAUSE,
+                     W, WHITE)
+from .draw import QUALITY, fill_circle, lighter, soft_shadow
+from .effects import Effects
 from .mathq import DISPLAY, OP_NAMES, QuestionMaker
+from .specials import CutIn, make_special
 from .sprite import VICTORY, Animator, Rig
 from .stages import STAGES
-from .ui import Keypad, font, panel, portrait, text
+from .ui import Keypad, panel, portrait, text
 
 SCALE = 1.05
 # Points (all multiplied by the level number, so harder levels score more)
@@ -22,8 +24,13 @@ PTS_SPEED = 100
 PTS_COUNTER = 100
 PTS_ROUND = 500
 PTS_FLAWLESS = 1000      # won a round without getting hit
-ATTACK_MOVES = ["punch", "kick", "combo", "special"]
-EXPR = {"punch": "angry", "kick": "angry", "combo": "angry", "special": "angry", "uppercut": "angry",
+PTS_SPECIAL = 200        # landed a special move
+PTS_SUPER = 400          # ...with a very fast answer
+ATTACK_MOVES = ["punch", "kick", "combo"]
+CPU_SPECIAL_CHANCE = 0.2     # how often the CPU uses its special (it only ever does 1 damage)
+EXPR = {"punch": "angry", "kick": "angry", "combo": "angry", "uppercut": "angry",
+        "special_kai": "angry", "special_luna": "angry", "special_dax": "angry", "special_mira": "angry",
+        "special_ryu": "angry",
         "charge": "angry", "block": "angry", "hit": "hurt", "ko": "ko", "victory": "happy",
         "victory_loop": "happy"}
 BUSY_OK = ("idle", "charge", "victory_loop", "walk")
@@ -31,6 +38,8 @@ BUSY_OK = ("idle", "charge", "victory_loop", "walk")
 
 class Actor:
     def __init__(self, fd, x, facing, scale=SCALE):
+        self.rim = None        # stage light colour
+        self.reflect = 0       # strength of the reflection on a shiny floor
         self.fd = fd
         self.scale = scale
         self.rig = Rig(fd)
@@ -43,9 +52,14 @@ class Actor:
         self.wind = 0.0
         self._hip = None
         self._dt = 1 / 60
+        self._buf = self._out = self._buf_size = self._buf_ss = None
 
     def play(self, name):
         self.anim.play(name)
+
+    @property
+    def special_anim(self):
+        return "special_" + self.fd.key
 
     @property
     def expr(self):
@@ -66,18 +80,115 @@ class Actor:
 
     def draw(self, surf, ground=GROUND_Y):
         hx = self.x + self.anim.pose["x"] * self.scale * self.facing
-        sw = int(160 * self.scale)
-        sh = pygame.Surface((sw, sw // 6), pygame.SRCALPHA)
-        pygame.draw.ellipse(sh, (0, 0, 0, 70), sh.get_rect())
-        surf.blit(sh, (hx - sw // 2, ground - sw // 12))
-        self.rig.draw(surf, self.x, ground, self.facing, self.scale, self.anim.pose, self.t, self.flash,
-                      self.expr, self.wind)
+        sw = int(210 * self.scale)
+        sh = soft_shadow(sw, sw // 4)
+        surf.blit(sh, (hx - sw // 2, ground - sw // 8))
+        ss = QUALITY["ss"]
+        if ss > 1:
+            self._draw_smooth(surf, ground, hx, ss)
+        else:
+            self.rig.draw(surf, self.x, ground, self.facing, self.scale, self.anim.pose, self.t, self.flash,
+                          self.expr, self.wind, self.rim)
         hip = self.rig.points["hip"][0]
         if self._hip is not None and self._dt > 0:
             v = (hip - self._hip) / self._dt * self.facing
             target = max(-30.0, min(30.0, v * 0.04))
             self.wind += (target - self.wind) * min(1.0, self._dt * 8)
         self._hip = hip
+
+
+    def _draw_smooth(self, surf, ground, hx, ss):
+        """Draws the fighter at a larger size into a buffer and scales it down."""
+        w, h = int(500 * self.scale), int(480 * self.scale)
+        left = int(hx - w / 2 + 40 * self.scale * self.facing)    # more room in front, for kicks
+        top = int(ground - h + 40 * self.scale)
+        size = (w, h)
+        if self._buf is None or self._buf_size != size or self._buf_ss != ss:
+            self._buf = pygame.Surface((int(w * ss), int(h * ss)), pygame.SRCALPHA)
+            self._out = pygame.Surface(size, pygame.SRCALPHA)
+            self._buf_size, self._buf_ss = size, ss
+        self._buf.fill((0, 0, 0, 0))
+        QUALITY["skip_aa"] = True
+        self.rig.draw(self._buf, (self.x - left) * ss, (ground - top) * ss, self.facing, self.scale * ss,
+                      self.anim.pose, self.t, self.flash, self.expr, self.wind, self.rim)
+        QUALITY["skip_aa"] = False
+        self.rig.points = {k: (x / ss + left, y / ss + top) for k, (x, y) in self.rig.points.items()}
+        pygame.transform.smoothscale(self._buf, size, self._out)
+        if self.reflect:
+            depth = ground - top
+            body = self._out.subsurface((0, 0, w, min(h, depth)))
+            mirror = pygame.transform.flip(body, False, True)
+            mirror = pygame.transform.smoothscale(mirror, (w, int(mirror.get_height() * 0.42)))
+            mirror.set_alpha(self.reflect)
+            surf.blit(mirror, (left, ground + 2))
+        surf.blit(self._out, (left, top))
+
+
+def draw_question_panel(surf, q, typed, head, border, q_left, q_time, hints=(), bar_marks=(), t=0.0):
+    """The question box shared by fights, practice and the daily challenge.
+    q_left=None means no time limit (practice)."""
+    cx, top = W // 2, 128
+    rect = pygame.Rect(cx - 300, top, 600, 186)
+    panel(surf, rect, (15, 10, 35), 225, border, 20, 4)
+    text(surf, head, 38, border, center=(cx, top + 26))
+    text(surf, q.text, 88, WHITE, center=(cx, top + 82), ow=4)
+    box = pygame.Rect(cx - 110, top + 118, 220, 50)
+    pygame.draw.rect(surf, (250, 250, 255), box, border_radius=10)
+    pygame.draw.rect(surf, border, box, 3, border_radius=10)
+    # One slot per digit of the answer; the answer is checked when they are full.
+    # A fraction shows its slash: 3/4 is typed 3 then 4.
+    slots, i = [], 0
+    for ch in str(q.answer):
+        if ch == "/":
+            slots.append("/")
+        else:
+            slots.append(typed[i] if i < len(typed) else "_")
+            i += 1
+    text(surf, " ".join(slots), 60, (20, 20, 40), center=box.center, ow=0)
+    if q_left is not None:
+        k = max(0.0, q_left / q_time)
+        barw = rect.w - 40
+        bar = pygame.Rect(rect.x + 20, rect.bottom - 18, int(barw * k), 10)
+        col = GREEN if k > 0.5 else (255, 200, 40) if k > 0.25 else RED
+        pygame.draw.rect(surf, (50, 40, 60), (rect.x + 20, rect.bottom - 18, barw, 10), border_radius=5)
+        pygame.draw.rect(surf, col, bar, border_radius=5)
+        for mark, mcol in bar_marks:      # e.g. where the special move runs out
+            mx = rect.x + 20 + int(barw * (1 - mark / q_time))
+            pygame.draw.rect(surf, mcol, (mx - 2, rect.bottom - 22, 4, 18), border_radius=2)
+        text(surf, f"{q_left:0.1f}s", 34, col, midright=(rect.right - 18, box.centery))
+    for i, (hint, hcol) in enumerate(hints):
+        y = box.centery + (i * 2 - len(hints) + 1) * 13
+        text(surf, hint, 26, hcol, midleft=(rect.x + 16, y))
+
+
+def draw_result_strip(surf, res):
+    """Compact strip after answering, so the action below stays visible.
+    A wrong answer always shows the right one, so kids learn from it."""
+    q = res["q"]
+    rect = pygame.Rect(W // 2 - 330, 128, 660, 72)
+    line = f"{q.a} {DISPLAY[q.op]} {q.b} = {q.answer}"
+    if res["correct"]:
+        panel(surf, rect, (10, 40, 20), 220, GREEN, 18, 3)
+        text(surf, f"CORRECT!   {line}", 52, GREEN, center=rect.center, ow=4)
+    else:
+        msg = "TIME'S UP!" if res["timeout"] else "OOPS!"
+        panel(surf, rect, (50, 10, 20), 220, RED, 18, 3)
+        text(surf, f"{msg}   {line}", 52, (255, 130, 130), center=rect.center, ow=4)
+
+
+def question_time(q, boss=False):
+    """Fractions get more time. Blocking the final boss gives less."""
+    t = FRACTION_ANSWER_TIME if q.is_fraction else ANSWER_TIME
+    return t * BOSS_ANSWER_TIME / ANSWER_TIME if boss else t
+
+
+def special_tier(elapsed, q_time):
+    """How good a special move a correct answer earns: 0 none, 1 special, 2 super.
+    The windows stretch with the time allowed, so fractions can earn them too."""
+    k = q_time / ANSWER_TIME
+    if elapsed <= SUPER_WINDOW * k:
+        return 2
+    return 1 if elapsed <= SPECIAL_WINDOW * k else 0
 
 
 class Battle:
@@ -94,8 +205,10 @@ class Battle:
         self.p = Actor(game.player, PLAYER_HOME_X, 1)
         self.c = Actor(game.opponents[game.stage], CPU_HOME_X, -1)
         # Attacking asks your own fighter's math, defending asks the attacker's.
-        self.qm_attack = QuestionMaker(self.p.fd.op, game.level)
-        self.qm_defend = QuestionMaker(self.c.fd.op, game.level)
+        self.qm_attack = QuestionMaker(self.p.fd.op, game.level, allowed=game.allowed_ops)
+        self.qm_defend = QuestionMaker(self.c.fd.op, game.level, allowed=game.allowed_ops)
+        for a in (self.p, self.c):
+            a.rim, a.reflect = self.stage.rim, self.stage.reflect
         self.fx = Effects()
         self.keypad = Keypad()
         self.round = 1
@@ -103,6 +216,8 @@ class Battle:
         self.paused = False
         self.disp_hp = [float(MAX_HITS), float(MAX_HITS)]
         self.score_pop = None     # (points, seconds shown) for the "+250" next to the score
+        self.cutin = None         # special move banner (the fight freezes while it shows)
+        self.hitstop = 0.0        # tiny freeze when a hit lands, so it feels heavy
         game.audio.play_music(self.stage.music_key)
         self.start_round(first=True)
 
@@ -132,11 +247,7 @@ class Battle:
         self.q = (self.qm_attack if mode == "attack" else self.qm_defend).next()
         self.mode = mode
         self.typed = ""
-        # Fractions get more time. Blocking the final boss gives less (3 s instead of 5),
-        # and the counter window shrinks with it.
-        self.q_time = FRACTION_ANSWER_TIME if self.q.is_fraction else ANSWER_TIME
-        if mode == "defend" and self.c.fd.boss:
-            self.q_time *= BOSS_ANSWER_TIME / ANSWER_TIME
+        self.q_time = question_time(self.q, boss=mode == "defend" and self.c.fd.boss)
         self.counter_window = COUNTER_WINDOW * self.q_time / ANSWER_TIME
         self.q_left = self.q_time
         self.last_tick = int(self.q_time)
@@ -154,6 +265,8 @@ class Battle:
         if correct:
             st["correct"] += 1
             st["best"] = min(st["best"], elapsed)
+        tier = special_tier(elapsed, self.q_time) if correct and self.mode == "attack" else 0
+        self.announce(self.game.answered(q.op, correct, elapsed, tier > 0))
         self.result = {"correct": correct, "q": q, "timeout": timeout, "t": 0.0, "typed": self.typed}
         self.game.audio.play("correct" if correct else "wrong")
 
@@ -161,18 +274,36 @@ class Battle:
             att, dfd = self.p, self.c
             outcome = "hit" if correct else "miss"
             counter = False
+            move = att.special_anim if tier else random.choice(ATTACK_MOVES)
+            if tier:
+                self.cutin = CutIn(att.fd, tier, 1)
+                self.game.audio.play("super" if tier == 2 else "special")
         else:
             att, dfd = self.c, self.p
             outcome = "block" if correct else "hit"
             counter = correct and elapsed <= self.counter_window
+            cpu_special = random.random() < CPU_SPECIAL_CHANCE or (att.fd.boss and random.random() < 0.3)
+            move = att.special_anim if cpu_special else random.choice(ATTACK_MOVES)
+            if att.fd.boss and cpu_special:
+                self.cutin = CutIn(att.fd, 1, -1)
+                self.game.audio.play("special")
         if correct:
             self.add_points(PTS_CORRECT + int(PTS_SPEED * self.q_left / self.q_time)
-                            + (PTS_COUNTER if counter else 0))
-        move = random.choice(ATTACK_MOVES)
-        self.exchange = {"att": att, "dfd": dfd, "outcome": outcome, "counter": counter,
+                            + (PTS_COUNTER if counter else 0)
+                            + {0: 0, 1: PTS_SPECIAL, 2: PTS_SUPER}[tier])
+        self.exchange = {"att": att, "dfd": dfd, "outcome": outcome, "counter": counter, "tier": tier,
+                         "power": SPECIAL_DAMAGE if tier else 1,
                          "counter_t": None, "counter_phase": False, "dodged": False, "ko": None}
         att.play(move)
         self.set_state("action")
+
+    def announce(self, events):
+        """New personal bests and streak milestones, as they happen."""
+        x, y = self.p.home, GROUND_Y - 340
+        if events.get("best_streak"):
+            self.fx.text("NEW BEST STREAK!", x, y, (255, 240, 120), 44, 1.4)
+        elif events.get("milestone"):
+            self.fx.text(f"{events['milestone']} IN A ROW!", x, y, (255, 240, 120), 44, 1.2)
 
     def add_points(self, pts):
         pts *= self.level
@@ -180,9 +311,10 @@ class Battle:
         self.score_pop = [pts, 0.0]
 
     # ------------------------------------------------------------- impacts --
-    def damage(self, victim, attacker, label, big=False):
-        victim.hits += 1
+    def damage(self, victim, attacker, label, big=False, amount=1):
+        victim.hits = min(MAX_HITS, victim.hits + amount)
         victim.flash = 1.0
+        self.hitstop = 0.07 * amount
         x, y = victim.point("chest")
         x -= 20 * victim.facing
         if victim.hits >= MAX_HITS:
@@ -199,7 +331,7 @@ class Battle:
             self.fx.shake(14 if big else 10, 0.3)
             self.game.audio.play("bighit" if big else "hit")
         color = GOLD if victim is self.c else RED
-        self.fx.text(label, x, y - 90, color, font(64), 1.0)
+        self.fx.text(label, x, y - 90, color, 64, 1.0)
 
     def impact(self, final):
         ex = self.exchange
@@ -208,7 +340,10 @@ class Battle:
         x -= 20 * dfd.facing
         if ex["outcome"] == "hit":
             if final:
-                self.damage(dfd, att, "HIT!" if dfd is self.c else "OUCH!", big=True)
+                label = "HIT!" if dfd is self.c else "OUCH!"
+                if ex["tier"]:
+                    label = f"SPECIAL! -{ex['power']}"
+                self.damage(dfd, att, label, big=True, amount=ex["power"])
             else:
                 dfd.play("hit")
                 dfd.flash = 0.6
@@ -220,13 +355,13 @@ class Battle:
                 ex["dodged"] = True
                 self.game.audio.play("whoosh")
             if final:
-                self.fx.text("MISS!", x, y - 90, (200, 200, 220), font(64))
+                self.fx.text("MISS!", x, y - 90, (200, 200, 220), 64)
         else:  # block
             dfd.play("block")
             self.fx.block_spark(x - 25 * dfd.facing, y - 20)
             self.game.audio.play("block")
             if final:
-                self.fx.text("BLOCK!", x, y - 90, (120, 200, 255), font(64))
+                self.fx.text("BLOCK!", x, y - 90, (120, 200, 255), 64)
                 if ex["counter"]:
                     ex["counter_t"] = 0.4
 
@@ -244,12 +379,8 @@ class Battle:
             target = ex["dfd"]
             tx = target.point("chest")[0] - 30 * target.facing
             self.game.audio.play("fire")
-            passes = ex["outcome"] == "miss"
-            if passes:
-                self.impact(False)
-            self.fx.projectiles.append(Projectile(
-                hx, hy, tx, actor.facing, actor.fd.theme, DISPLAY[self.q.op], font(56),
-                lambda: self.impact(True), passes))
+            self.fx.projectiles.append(make_special(actor.fd.key, hx, hy, tx, actor.facing, actor.fd.theme,
+                                                    max(1, ex["tier"]), lambda: self.impact(True)))
         elif e == "land":
             x = actor.point("hip")[0]
             for i in range(14):
@@ -303,6 +434,16 @@ class Battle:
     # ------------------------------------------------------------- update --
     def update(self, dt):
         if self.paused:
+            return
+        if self.cutin:
+            self.stage.update(dt)
+            self.cutin.update(dt)
+            if self.cutin.done:
+                self.cutin = None
+            return
+        if self.hitstop > 0:
+            self.hitstop -= dt
+            self.fx.update(dt)
             return
         if self.slowmo > 0:
             self.slowmo -= dt
@@ -401,6 +542,7 @@ class Battle:
                 self.game.match_over(self.wins[0] >= ROUNDS_TO_WIN)
 
     def end_round(self):
+        self.game.store()
         ph, ch = self.p.hits, self.c.hits
         if ph < ch:
             self.round_winner = 0
@@ -419,10 +561,7 @@ class Battle:
 
     # --------------------------------------------------------------- draw --
     def draw(self, surf):
-        ox, oy = self.fx.offset()
-        self.stage.draw(surf, ox, oy)
-        shaking = ox or oy
-        layer = pygame.Surface((W, H), pygame.SRCALPHA) if shaking else surf
+        self.stage.draw(surf)
         # the defender is drawn first so attacks appear in front
         order = [self.c, self.p]
         if self.exchange and self.state == "action":
@@ -430,16 +569,19 @@ class Battle:
             if self.exchange["counter_phase"]:
                 order.reverse()
         for a in order:
-            a.draw(layer)
-        self.fx.draw(layer)
-        self.stage.draw_front(layer)
-        if shaking:
-            surf.blit(layer, (ox, oy))
+            a.draw(surf)
+        self.fx.draw(surf)
+        self.stage.draw_front(surf)
+        ox, oy = self.fx.offset()
+        if ox or oy:
+            surf.scroll(int(ox), int(oy))
+        if self.cutin:
+            self.cutin.draw(surf)
         self.draw_hud(surf)
         if self.state == "question":
             self.draw_question(surf)
         elif self.result and self.result["t"] < 1.6:
-            self.draw_result(surf)
+            draw_result_strip(surf, self.result)
         self.fx.draw_top(surf)
         self.draw_banner(surf)
         if self.paused:
@@ -494,6 +636,8 @@ class Battle:
             k = self.score_pop[1] / 1.2
             text(surf, f"+{self.score_pop[0]:,}", 32, (255, 255, 160),
                  midleft=(20, int(H - 58 - 30 * k)), ow=3)
+        if g.streak >= 3:
+            text(surf, f"{g.streak} IN A ROW", 28, (255, 255, 200), midleft=(250, H - 22), ow=3)
         lv = "BONUS LEVEL: FRACTIONS" if self.level >= BONUS_LEVEL else f"LEVEL {self.level}"
         text(surf, f"STAGE {self.stage_no + 1}: {self.stage.name.upper()}   {lv}", 26,
              (230, 230, 240), center=(W // 2, H - 18))
@@ -504,63 +648,27 @@ class Battle:
             pygame.draw.rect(surf, WHITE, (W - 39, 133, 8, 30))
 
     def draw_question(self, surf):
-        g = self.game
         attack = self.mode == "attack"
-        cx, top = W // 2, 128
-        rect = pygame.Rect(cx - 300, top, 600, 186)
         border = (255, 200, 60) if attack else (90, 170, 255)
-        panel(surf, rect, (15, 10, 35), 225, border, 20, 4)
-        if attack:
-            head = f"ATTACK with {DISPLAY[self.p.fd.op]} !"
-        else:
-            head = f"DEFEND!  Block the {OP_NAMES[self.q.op].upper()} attack!"
-        text(surf, head, 38, border, center=(cx, top + 26))
-        text(surf, self.q.text, 88, WHITE, center=(cx, top + 82), ow=4)
-        box = pygame.Rect(cx - 110, top + 118, 220, 50)
-        pygame.draw.rect(surf, (250, 250, 255), box, border_radius=10)
-        pygame.draw.rect(surf, border, box, 3, border_radius=10)
-        # One slot per digit of the answer; the answer is checked when they are full.
-        # A fraction shows its slash: 3/4 is typed 3 then 4.
-        slots, i = [], 0
-        for ch in str(self.q.answer):
-            if ch == "/":
-                slots.append("/")
-            else:
-                slots.append(self.typed[i] if i < len(self.typed) else "_")
-                i += 1
-        text(surf, " ".join(slots), 60, (20, 20, 40), center=box.center, ow=0)
-        # timer bar
-        k = max(0.0, self.q_left / self.q_time)
-        bar = pygame.Rect(rect.x + 20, rect.bottom - 18, int((rect.w - 40) * k), 10)
-        col = GREEN if k > 0.5 else (255, 200, 40) if k > 0.25 else RED
-        pygame.draw.rect(surf, (50, 40, 60), (rect.x + 20, rect.bottom - 18, rect.w - 40, 10), border_radius=5)
-        pygame.draw.rect(surf, col, bar, border_radius=5)
-        text(surf, f"{self.q_left:0.1f}s", 34, col, midright=(rect.right - 18, box.centery))
-        hints = []
+        hints, marks = [], []
         if self.q.is_fraction:
             hints.append(("SIMPLEST FORM", (150, 230, 255)))
-        if not attack and self.q_left >= self.q_time - self.counter_window:
-            hints.append(("FAST = COUNTER!", (255, 160, 220)))
-        for i, (hint, hcol) in enumerate(hints):
-            y = box.centery + (i * 2 - len(hints) + 1) * 13
-            text(surf, hint, 26, hcol, midleft=(rect.x + 16, y))
-        if g.touch:
-            self.keypad.draw(surf, 1 / 60)
-
-    def draw_result(self, surf):
-        """Compact strip after answering, so the action below stays visible.
-        A wrong answer always shows the right one, so kids learn from it."""
-        res = self.result
-        q = res["q"]
-        rect = pygame.Rect(W // 2 - 330, 128, 660, 72)
-        if res["correct"]:
-            panel(surf, rect, (10, 40, 20), 220, GREEN, 18, 3)
-            text(surf, f"CORRECT!   {q.a} {DISPLAY[q.op]} {q.b} = {q.answer}", 52, GREEN, center=rect.center, ow=4)
+        if attack:
+            head = f"ATTACK with {DISPLAY[self.q.op]} !"
+            k = self.q_time / ANSWER_TIME
+            marks = [(SPECIAL_WINDOW * k, WHITE), (SUPER_WINDOW * k, GOLD)]
+            elapsed = self.q_time - self.q_left
+            if elapsed <= SUPER_WINDOW * k:
+                hints.append(("SUPER SPECIAL!", (255, 225, 90)))
+            elif elapsed <= SPECIAL_WINDOW * k:
+                hints.append(("SPECIAL MOVE!", WHITE))
         else:
-            msg = "TIME'S UP!" if res["timeout"] else "OOPS!"
-            panel(surf, rect, (50, 10, 20), 220, RED, 18, 3)
-            text(surf, f"{msg}   {q.a} {DISPLAY[q.op]} {q.b} = {q.answer}", 52, (255, 130, 130),
-                 center=rect.center, ow=4)
+            head = f"DEFEND!  Block the {OP_NAMES[self.q.op].upper()} attack!"
+            if self.q_left >= self.q_time - self.counter_window:
+                hints.append(("FAST = COUNTER!", (255, 160, 220)))
+        draw_question_panel(surf, self.q, self.typed, head, border, self.q_left, self.q_time, hints, marks)
+        if self.game.touch:
+            self.keypad.draw(surf, 1 / 60)
 
     def draw_banner(self, surf):
         s, t = self.state, self.state_t

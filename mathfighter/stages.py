@@ -8,7 +8,7 @@ import pygame
 from pygame import gfxdraw
 
 from .config import H, W
-from .draw import darker, fill_circle, fill_poly, mix, outlined_text, vgradient
+from .draw import add_glow, darker, fill_circle, fill_poly, mix, outlined_text, vgradient
 
 
 def _mountains(surf, rng, base_y, height, color):
@@ -37,15 +37,59 @@ def _floor(surf, top_y, near, far, line, lines=True):
             gap *= 1.45
 
 
+_vignette = None
+
+
+def _get_vignette():
+    """Darkens the corners a little, which pulls the eye to the fighters."""
+    global _vignette
+    if _vignette is None:
+        small = pygame.Surface((64, 36))
+        for y in range(36):
+            for x in range(64):
+                d = math.hypot((x - 31.5) / 32, (y - 17.5) / 18)
+                v = int(255 * (1 - 0.42 * max(0.0, d - 0.55) ** 1.5 / 0.7))
+                small.set_at((x, y), (v, v, v))
+        _vignette = pygame.transform.smoothscale(small, (W, H))
+    return _vignette
+
+
+def polish(bg, rays=None):
+    """Finishing touches on a stage painting: light shafts, a soft focus so the
+    scenery sits behind the sharp fighters, and the vignette."""
+    if rays:
+        (ox, oy), color, count = rays
+        low = pygame.Surface((W // 4, H // 4))
+        rng = random.Random(4)
+        for i in range(count):
+            a = math.tau * i / count + rng.uniform(-0.1, 0.1)
+            d = rng.uniform(0.05, 0.11)
+            pts = [(ox / 4, oy / 4),
+                   (ox / 4 + math.cos(a - d) * 500, oy / 4 + math.sin(a - d) * 500),
+                   (ox / 4 + math.cos(a + d) * 500, oy / 4 + math.sin(a + d) * 500)]
+            pygame.draw.polygon(low, color, pts)
+        low.fill((0, 0, 0), (0, 540 // 4, W // 4, H // 4))      # light shafts stay above the floor
+        low = pygame.transform.smoothscale(pygame.transform.smoothscale(low, (W // 16, H // 16)), (W, H))
+        bg.blit(low, (0, 0), special_flags=pygame.BLEND_RGB_ADD)
+    soft = pygame.transform.smoothscale(pygame.transform.smoothscale(bg, (W // 2, H // 2)), (W, H))
+    soft.set_alpha(200)
+    bg.blit(soft, (0, 0))
+    bg.blit(_get_vignette(), (0, 0), special_flags=pygame.BLEND_RGB_MULT)
+
+
 class Stage:
     name = ""
     location = ""
     music_key = 0
+    rim = None        # colour of the stage light on the fighters
+    reflect = 0       # strength of the fighters' reflection on the floor
+    rays = None       # light shafts: (origin, colour, how many)
 
     def __init__(self):
         self.rng = random.Random(self.name)
         self.bg = pygame.Surface((W, H))
         self.build(self.bg)
+        polish(self.bg, self.rays)
         self.t = 0.0
         self.parts = []
 
@@ -66,6 +110,8 @@ class SakuraTemple(Stage):
     name = "Sakura Temple"
     location = "Kyoto Mountains, Japan"
     music_key = 0
+    rim = (255, 170, 110)
+    rays = ((900, 300), (60, 38, 24), 14)
 
     def build(self, s):
         rng = self.rng
@@ -128,6 +174,8 @@ class NeonRooftop(Stage):
     name = "Neon Rooftop"
     location = "Downtown Number City"
     music_key = 1
+    rim = (255, 70, 190)
+    reflect = 70
 
     def build(self, s):
         rng = self.rng
@@ -161,19 +209,18 @@ class NeonRooftop(Stage):
         pygame.draw.line(s, (120, 120, 150), (0, 520), (W, 520), 5)
         pygame.draw.rect(s, (50, 45, 70), (60, 380, 110, 150))
         fill_poly(s, [(50, 380), (180, 380), (115, 340)], (40, 35, 60))
-        font = pygame.font.Font(None, 90)
-        self.signs = [(outlined_text(font, "+", (255, 255, 255), (255, 60, 150), 5), (330, 200), (255, 60, 150)),
-                      (outlined_text(font, "×", (255, 255, 255), (60, 220, 255), 5), (640, 150), (60, 220, 255)),
-                      (outlined_text(font, "÷", (255, 255, 255), (180, 90, 255), 5), (930, 230), (180, 90, 255)),
-                      (outlined_text(font, "\u2212", (255, 255, 255), (255, 210, 60), 5), (1180, 280), (255, 210, 60))]
+        self.signs = [(outlined_text(90, "+", (255, 255, 255), (255, 60, 150), 5), (330, 200), (255, 60, 150)),
+                      (outlined_text(90, "×", (255, 255, 255), (60, 220, 255), 5), (640, 150), (60, 220, 255)),
+                      (outlined_text(90, "÷", (255, 255, 255), (180, 90, 255), 5), (930, 230), (180, 90, 255)),
+                      (outlined_text(90, "\u2212", (255, 255, 255), (255, 210, 60), 5), (1180, 280), (255, 210, 60))]
 
     def draw(self, surf, ox=0, oy=0):
         super().draw(surf, ox, oy)
         for i, (img, (x, y), c) in enumerate(self.signs):
             on = math.sin(self.t * 3 + i * 1.7) > -0.85 or (int(self.t * 20) % 2 == 0)
             if on:
-                glow = 46 + 6 * math.sin(self.t * 5 + i)
-                gfxdraw.filled_circle(surf, x, y, int(glow), (*c, 50))
+                glow = 96 + 12 * math.sin(self.t * 5 + i)
+                add_glow(surf, (x, y), glow, tuple(v // 2 for v in c))
                 surf.blit(img, img.get_rect(center=(x, y)))
         for i, (wx, wy, c) in enumerate(self.windows):
             if math.sin(self.t * 0.7 + i * 2.3) > 0.6:
@@ -190,6 +237,9 @@ class MagmaCrater(Stage):
     name = "Magma Crater"
     location = "Mount Calculus Volcano"
     music_key = 2
+    rim = (255, 120, 30)
+    reflect = 35
+    rays = ((640, 120), (70, 24, 4), 12)
 
     def build(self, s):
         rng = self.rng
@@ -258,6 +308,9 @@ class AuroraPalace(Stage):
     name = "Aurora Ice Palace"
     location = "The Frozen North Pole"
     music_key = 3
+    rim = (110, 235, 220)
+    reflect = 90
+    rays = ((640, -140), (18, 42, 46), 12)
 
     def build(self, s):
         rng = self.rng

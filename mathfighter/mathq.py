@@ -89,17 +89,18 @@ def make_question(op, level, rng=random):
 
 
 class QuestionMaker:
-    """Avoids asking the same question twice in a row. With op=MIX each
-    question uses a random one of the four operations."""
+    """Avoids asking the same question twice in a row. With op=MIX, or an
+    operation that is switched off, each question uses a random allowed one."""
 
-    def __init__(self, op, level, rng=None):
+    def __init__(self, op, level, rng=None, allowed=OPS):
         self.op, self.level = op, level
         self.rng = rng or random.Random()
+        self.allowed = tuple(allowed) or OPS     # parents can switch operations off
         self.recent = []
 
     def next(self):
         for _ in range(20):
-            op = self.rng.choice(OPS) if self.op == MIX else self.op
+            op = self.op if self.op in self.allowed else self.rng.choice(self.allowed)
             q = make_question(op, self.level, self.rng)
             if q not in self.recent:
                 break

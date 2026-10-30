@@ -272,6 +272,9 @@ class Audio:
             "select": _tone([520], 0.06, "square", 0.25, release=0.3),
             "confirm": _tone([520, 780], 0.08, "square", 0.3) + _tone([780, 1040], 0.18, "square", 0.3),
             "fire": _tone([300], 0.35, "saw", 0.3, 1.5, noise=0.15, release=0.7),
+            "special": _tone([440, 660], 0.1, "square", 0.3) + _tone([660, 990], 0.28, "saw", 0.35, 0.3, noise=0.1),
+            "super": _tone([330, 495], 0.08, "square", 0.3) + _tone([495, 742], 0.08, "square", 0.3)
+            + _tone([660, 990, 1320], 0.4, "saw", 0.4, 0.4, noise=0.15),
             "ko": _tone([110, 82], 0.9, "saw", 0.6, -0.6, noise=0.3, release=0.8),
             "fight": _tone([392, 494, 587], 0.12, "square", 0.35) + _tone([523, 659, 784], 0.35, "square", 0.35),
         }

@@ -44,6 +44,7 @@ Description: Math Fighter: Tournament of Numbers
  is powered by a math question. Pick one of four fighters (addition,
  subtraction, multiplication or division), choose a level from 1 to 5,
  and battle through 4 stages to become the Math Tournament Champion.
+ Includes practice mode, daily challenges, parent math settings and progress tracking.
 EOF
 
 cat > "$ROOT/DEBIAN/postinst" <<'EOF'

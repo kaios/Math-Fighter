@@ -7,6 +7,10 @@ from pygame import gfxdraw
 
 from .config import INK
 
+# Rendering quality. Fighters are drawn at QUALITY["ss"] times the size and scaled
+# down, which smooths every edge. The main loop lowers it if a machine is too slow.
+QUALITY = {"ss": 2, "skip_aa": False}
+
 
 def mix(a, b, t):
     return tuple(int(a[i] + (b[i] - a[i]) * t) for i in range(3))
@@ -21,7 +25,7 @@ def lighter(c, k=0.35):
 
 
 def _ipts(pts):
-    return [(int(round(x)), int(round(y))) for x, y in pts]
+    return [(int(x + 0.5), int(y + 0.5)) for x, y in pts]
 
 
 def fill_poly(surf, pts, color):
@@ -29,13 +33,15 @@ def fill_poly(surf, pts, color):
         return
     p = _ipts(pts)
     gfxdraw.filled_polygon(surf, p, color)
-    gfxdraw.aapolygon(surf, p, color)
+    if not QUALITY["skip_aa"]:      # not needed when the drawing gets scaled down anyway
+        gfxdraw.aapolygon(surf, p, color)
 
 
 def fill_circle(surf, c, r, color):
     x, y, r = int(round(c[0])), int(round(c[1])), max(1, int(round(r)))
     gfxdraw.filled_circle(surf, x, y, r, color)
-    gfxdraw.aacircle(surf, x, y, r, color)
+    if not QUALITY["skip_aa"]:
+        gfxdraw.aacircle(surf, x, y, r, color)
 
 
 def capsule_pts(p1, p2, r1, r2, steps=7):
@@ -76,8 +82,8 @@ class Pen:
 
     LIGHT = (-0.45, -0.65)  # light comes from the upper left
 
-    def __init__(self, surf, ol=2.5, flash=0.0, ink=INK):
-        self.surf, self.ol, self.flash, self.ink = surf, ol, flash, ink
+    def __init__(self, surf, ol=2.5, flash=0.0, ink=INK, rim=None):
+        self.surf, self.ol, self.flash, self.ink, self.rim = surf, ol, flash, ink, rim
 
     def c(self, color):
         if self.flash > 0:
@@ -114,12 +120,20 @@ class Pen:
         if not shade:
             fill_poly(self.surf, capsule_pts(p1, p2, r1, r2), col)
             return
-        fill_poly(self.surf, capsule_pts(p1, p2, r1, r2), darker(col, 0.78))
         lx, ly = self.LIGHT
-        o1, o2 = r1 * 0.28, r2 * 0.28
-        fill_poly(self.surf, capsule_pts((p1[0] + lx * o1, p1[1] + ly * o1),
-                                         (p2[0] + lx * o2, p2[1] + ly * o2),
-                                         r1 * 0.72, r2 * 0.72), col)
+
+        def shifted(k, size):
+            return capsule_pts((p1[0] + lx * r1 * k, p1[1] + ly * r1 * k),
+                               (p2[0] + lx * r2 * k, p2[1] + ly * r2 * k), r1 * size, r2 * size)
+
+        # coloured stage light along the shadow side, then shadow, base and highlight
+        if self.rim:
+            fill_poly(self.surf, capsule_pts(p1, p2, r1, r2), mix(darker(col, 0.7), self.rim, 0.75))
+            fill_poly(self.surf, shifted(0.09, 0.93), darker(col, 0.78))
+        else:
+            fill_poly(self.surf, capsule_pts(p1, p2, r1, r2), darker(col, 0.78))
+        fill_poly(self.surf, shifted(0.17, 0.82), col)
+        fill_poly(self.surf, shifted(0.46, 0.2), lighter(col, 0.2))
 
     def ribbon(self, points, widths, color, outline=True):
         pts = ribbon_pts(points, widths)
@@ -127,17 +141,77 @@ class Pen:
         return pts
 
 
-def outlined_text(font, text, color, outline=(0, 0, 0), width=3):
+_fonts = {}
+
+
+def get_font(size):
+    if size not in _fonts:
+        _fonts[size] = pygame.font.Font(None, size)
+    return _fonts[size]
+
+
+def outlined_text(size, text, color, outline=(0, 0, 0), width=3):
+    """Text with an outline. Rendered at twice the size and scaled down, which
+    gives smooth edges and even letter spacing."""
+    font = get_font(size * 2)
     base = font.render(text, True, color)
+    w2 = width * 2
+    if not width:
+        return pygame.transform.smoothscale(base, (max(1, base.get_width() // 2),
+                                                   max(1, base.get_height() // 2)))
     out = font.render(text, True, outline)
-    w, h = base.get_width() + width * 2, base.get_height() + width * 2
-    surf = pygame.Surface((w, h), pygame.SRCALPHA)
-    for dx in range(-width, width + 1):
-        for dy in range(-width, width + 1):
-            if dx * dx + dy * dy <= width * width + 1:
-                surf.blit(out, (dx + width, dy + width))
-    surf.blit(base, (width, width))
-    return surf
+    surf = pygame.Surface((base.get_width() + w2 * 2, base.get_height() + w2 * 2), pygame.SRCALPHA)
+    step = max(1, w2 // 3)
+    for dx in range(-w2, w2 + 1, step):
+        for dy in range(-w2, w2 + 1, step):
+            if dx * dx + dy * dy <= w2 * w2 + 1:
+                surf.blit(out, (dx + w2, dy + w2))
+    surf.blit(base, (w2, w2))
+    return pygame.transform.smoothscale(surf, (surf.get_width() // 2, surf.get_height() // 2))
+
+
+_glows = {}
+
+
+def glow_sprite(radius, color):
+    """Soft round light, added to the picture with add_glow."""
+    radius = max(4, int(radius) // 4 * 4)
+    key = (radius, color)
+    img = _glows.get(key)
+    if img is None:
+        if len(_glows) > 300:
+            _glows.clear()
+        img = pygame.Surface((radius * 2, radius * 2))
+        for r in range(radius, 0, -2):
+            k = (1 - r / radius) ** 2
+            pygame.draw.circle(img, tuple(int(c * k) for c in color), (radius, radius), r)
+        _glows[key] = img
+    return img
+
+
+def add_glow(surf, c, radius, color):
+    img = glow_sprite(radius, color)
+    surf.blit(img, (c[0] - img.get_width() // 2, c[1] - img.get_height() // 2),
+              special_flags=pygame.BLEND_RGB_ADD)
+
+
+_shadows = {}
+
+
+def soft_shadow(w, h, alpha=90):
+    """Blurred ground shadow."""
+    key = (w, h, alpha)
+    img = _shadows.get(key)
+    if img is None:
+        small = pygame.Surface((w, h), pygame.SRCALPHA)
+        for i in range(24, 0, -1):
+            k = i / 24
+            rect = pygame.Rect(0, 0, int(w * k), int(h * k))
+            rect.center = (w // 2, h // 2)
+            pygame.draw.ellipse(small, (0, 0, 0, int(alpha * (1 - k) ** 0.8)), rect)
+        img = pygame.transform.smoothscale(pygame.transform.smoothscale(small, (w // 2, h // 2)), (w, h))
+        _shadows[key] = img
+    return img
 
 
 def vgradient(size, top, bottom):

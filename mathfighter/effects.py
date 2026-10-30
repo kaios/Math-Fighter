@@ -1,11 +1,15 @@
-"""Particles, hit sparks, floating text, projectiles and screen shake."""
+"""Particles, hit sparks, floating text and screen shake."""
 
 import math
 import random
 
 import pygame
 
-from .draw import fill_circle, fill_poly, lighter, outlined_text
+from .draw import add_glow, fill_circle, fill_poly, mix, outlined_text
+
+
+def _dim(color, k):
+    return tuple(int(c * k) for c in color)
 
 
 class Particle:
@@ -46,14 +50,16 @@ class Particle:
                 a = self.ang + i * math.pi / 4
                 rr = r if i % 2 == 0 else r * 0.35
                 pts.append((self.x + math.cos(a) * rr, self.y + math.sin(a) * rr))
+            add_glow(surf, (self.x, self.y), r * 2.4, _dim(self.color, 0.5))
             fill_poly(surf, pts, self.color)
         else:
+            add_glow(surf, (self.x, self.y), self.size * 3 * k, _dim(self.color, 0.45))
             fill_circle(surf, (self.x, self.y), max(1, self.size * k), self.color)
 
 
 class Popup:
-    def __init__(self, text, x, y, color, font, life=1.0, rise=60):
-        self.img = outlined_text(font, text, color, (20, 10, 30), 4)
+    def __init__(self, text, x, y, color, size, life=1.0, rise=60):
+        self.img = outlined_text(size, text, color, (20, 10, 30), 4)
         self.x, self.y, self.life, self.max_life, self.rise = x, y, life, life, rise
 
     def update(self, dt):
@@ -70,42 +76,6 @@ class Popup:
             img = img.copy()
             img.set_alpha(int(255 * self.life / 0.3))
         surf.blit(img, img.get_rect(center=(self.x, self.y - self.rise * k)))
-
-
-class Projectile:
-    """Energy ball carrying the attacker's math symbol."""
-
-    def __init__(self, x, y, target_x, direction, color, symbol, font, on_arrive, passes=False):
-        self.x, self.y = x, y
-        self.target_x, self.dir = target_x, direction
-        self.color, self.symbol = color, outlined_text(font, symbol, (255, 255, 255), color, 3)
-        self.on_arrive, self.passes = on_arrive, passes
-        self.arrived = False
-        self.t = 0.0
-        self.trail = []
-
-    def update(self, dt, fx):
-        self.t += dt
-        self.x += 950 * dt * self.dir
-        self.trail = ([(self.x, self.y)] + self.trail)[:10]
-        if random.random() < 0.8:
-            fx.add(Particle(self.x, self.y + random.uniform(-12, 12), -self.dir * random.uniform(40, 160),
-                            random.uniform(-40, 40), 0.35, lighter(self.color, 0.4), 5))
-        if not self.arrived and (self.x - self.target_x) * self.dir >= 0:
-            self.arrived = True
-            self.on_arrive()
-            if not self.passes:
-                return False
-        return -100 < self.x < 1380
-
-    def draw(self, surf):
-        for i, (x, y) in enumerate(self.trail[::-1]):
-            k = (i + 1) / len(self.trail)
-            fill_circle(surf, (x, y), 20 * k, self.color)
-        pulse = 1 + 0.12 * math.sin(self.t * 30)
-        fill_circle(surf, (self.x, self.y), 30 * pulse, self.color)
-        fill_circle(surf, (self.x, self.y), 22 * pulse, lighter(self.color, 0.6))
-        surf.blit(self.symbol, self.symbol.get_rect(center=(self.x, self.y)))
 
 
 class Effects:
@@ -132,6 +102,7 @@ class Effects:
         return random.uniform(-a, a), random.uniform(-a, a)
 
     def hit_spark(self, x, y, color=(255, 230, 120), big=False):
+        self.add(Particle(x, y, 0, 0, 0.18, mix(color, (255, 255, 255), 0.5), 34 if big else 22))
         n = 26 if big else 14
         for _ in range(n):
             a = random.uniform(0, math.tau)
@@ -154,8 +125,8 @@ class Effects:
                           random.uniform(-15, 15), random.uniform(-260, -120), random.uniform(0.3, 0.6),
                           color, random.uniform(4, 8)))
 
-    def text(self, text, x, y, color, font, life=1.0, rise=60):
-        self.popups.append(Popup(text, x, y, color, font, life, rise))
+    def text(self, text, x, y, color, size, life=1.0, rise=60):
+        self.popups.append(Popup(text, x, y, color, size, life, rise))
 
     def update(self, dt):
         self.parts = [p for p in self.parts if p.update(dt)]

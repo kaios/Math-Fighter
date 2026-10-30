@@ -3,11 +3,15 @@
 import os
 import random
 import sys
+import time
+from datetime import date
 
 import pygame
 
-from .config import FPS, H, TITLE, W
-from . import highscores, save
+from .config import BONUS_LEVEL, FPS, H, MAX_LEVEL, TITLE, W
+from .draw import QUALITY
+from .mathq import OPS
+from . import highscores, progress, save
 from .characters import ROSTER, RYU
 
 ON_ANDROID = "ANDROID_ARGUMENT" in os.environ or hasattr(sys, "getandroidapilevel")
@@ -35,7 +39,14 @@ class Game:
         self.audio = Audio(music_on=self.save.get("music", True))
         self.touch = ON_ANDROID
         self.seen_howto = False
-        self.level = 1
+        top = BONUS_LEVEL if self.bonus_unlocked else MAX_LEVEL
+        level = self.save.get("level", 1)
+        self.level = level if isinstance(level, int) and 1 <= level <= top else 1
+        self.streak = 0       # correct answers in a row, in any mode
+        self.new_best_score = False    # the run that just ended beat the best for its level
+        if ON_ANDROID:
+            QUALITY["ss"] = 1 # phones keep the frame rate instead
+        self.slow_frames = 0
         self.player = ROSTER[0]
         self.opponents = []
         self.stage = 0
@@ -58,6 +69,40 @@ class Game:
         self.save["music"] = self.audio.toggle_music()
         save.store(self.save)
 
+    @property
+    def allowed_ops(self):
+        """The operations switched on in Math Settings (at least one always is)."""
+        saved = self.save.get("ops")
+        ops = tuple(op for op in OPS if isinstance(saved, list) and op in saved)
+        return ops or OPS
+
+    def toggle_op(self, op):
+        ops = list(self.allowed_ops)
+        if op in ops:
+            if len(ops) > 1:
+                ops.remove(op)
+        else:
+            ops.append(op)
+        self.save["ops"] = ops
+        save.store(self.save)
+
+    def set_level(self, level):
+        self.level = level
+        self.save["level"] = level
+        save.store(self.save)
+
+    @staticmethod
+    def today():
+        return date.today().isoformat()
+
+    def answered(self, op, correct, elapsed, special=False):
+        """Every answer in every mode comes through here, for the progress screen."""
+        self.streak = self.streak + 1 if correct else 0
+        return progress.answered(self.save, op, correct, elapsed, self.today(), self.streak, special)
+
+    def store(self):
+        save.store(self.save)
+
     def reset_stats(self):
         self.stats = {"asked": 0, "correct": 0, "best": 99.0}
 
@@ -66,6 +111,7 @@ class Game:
         self.scene = scene
 
     def to_title(self):
+        self.store()
         from .scenes import Title
         self.goto(Title(self))
 
@@ -103,9 +149,13 @@ class Game:
 
     def match_over(self, won):
         from .scenes import Champion, GameOver, Versus
+        if not won or self.stage >= len(self.opponents) - 1:
+            self.new_best_score = progress.record_run(self.save, self.level, self.score)
+            self.store()
         if not won:
             self.end_run(lambda: GameOver(self))
         elif self.stage >= len(self.opponents) - 1:
+            progress.tournament_won(self.save)
             self.goto(Champion(self))
         else:
             self.stage += 1
@@ -116,6 +166,7 @@ class Game:
         """Global keys first, everything else goes to the current scene."""
         if ev.type == pygame.QUIT:
             self.running = False
+            self.store()
         elif ev.type == pygame.KEYDOWN and ev.key == pygame.K_F11:
             pygame.display.toggle_fullscreen()
         elif ev.type == pygame.KEYDOWN and ev.key == pygame.K_m and \
@@ -128,14 +179,23 @@ class Game:
                 self.touch = True
             self.scene.handle(ev)
 
+    def watch_speed(self, work):
+        """Drops to simpler fighter drawing if a machine can't keep up."""
+        if QUALITY["ss"] > 1:
+            self.slow_frames = self.slow_frames + 1 if work > 0.9 / FPS else max(0, self.slow_frames - 1)
+            if self.slow_frames > 90:
+                QUALITY["ss"] = 1
+
     def run(self):
         while self.running:
             dt = min(self.clock.tick(FPS) / 1000.0, 1 / 20)
             for ev in pygame.event.get():
                 self.dispatch(ev)
+            t0 = time.perf_counter()
             self.scene.update(dt)
             self.audio.update()
             self.scene.draw(self.screen)
+            self.watch_speed(time.perf_counter() - t0)
             pygame.display.flip()
         pygame.quit()
 

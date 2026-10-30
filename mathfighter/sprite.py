@@ -45,6 +45,18 @@ POSES = {
               ffx=128, ffy=92, fbx=-26),
     "special_wind": P(x=-15, hy=98, torso=-10, saf=-40, eaf=100, sab=-50, eab=100, ffx=42, fbx=-56),
     "special": P(x=20, hy=96, torso=15, head=-8, saf=78, eaf=5, sab=74, eab=12, ffx=62, fbx=-70),
+    # special moves, one set per fighter
+    "luna_wind": P(x=-20, hy=96, torso=-16, head=4, saf=-110, eaf=-40, sab=45, eab=100, ffx=40, fbx=-60),
+    "luna_throw": P(x=45, hy=92, torso=26, head=-8, saf=86, eaf=0, sab=-40, eab=70, ffx=74, fbx=-72),
+    "dax_wind": P(x=-30, hy=88, torso=26, head=-8, saf=-55, eaf=30, sab=-30, eab=80, ffx=46, fbx=-66),
+    "dax_dash": P(x=100, hy=84, torso=32, head=-16, saf=-20, eaf=20, sab=-50, eab=60, ffx=84, fbx=-88),
+    "dax_cut": P(x=125, hy=86, torso=24, head=-12, saf=98, eaf=4, sab=-65, eab=40, ffx=84, fbx=-88),
+    "mira_wind": P(x=0, hy=84, torso=18, saf=-50, eaf=60, sab=-60, eab=60, ffx=36, fbx=-44),
+    "mira_up": P(x=25, hy=150, torso=-14, head=6, saf=150, eaf=16, sab=-150, eab=16, ffx=52, ffy=62, fbx=-8, fby=44),
+    "mira_kick": P(x=55, hy=138, torso=-26, head=8, saf=120, eaf=30, sab=-110, eab=30, ffx=128, ffy=78, fbx=-16, fby=28),
+    "ryu_wind": P(x=-14, hy=88, torso=4, head=2, saf=95, eaf=135, sab=90, eab=130, ffx=52, fbx=-66),
+    "ryu_open": P(x=-6, hy=96, torso=-10, head=-10, saf=155, eaf=12, sab=-150, eab=12, ffx=50, fbx=-64),
+    "ryu_strike": P(x=45, hy=92, torso=22, head=-8, saf=84, eaf=4, sab=-38, eab=60, ffx=72, fbx=-74),
     "upper_wind": P(x=45, hy=86, torso=26, saf=10, eaf=120, sab=30, eab=110, ffx=38, fbx=-52),
     "uppercut": P(x=130, hy=122, torso=-8, head=-12, saf=165, eaf=12, sab=-20, eab=100,
                   ffx=34, ffy=34, fbx=-24),
@@ -105,8 +117,16 @@ ANIMS = {
     "combo": _a([("punch_wind", 0.1), ("punch", 0.07, "jab", ease_out), ("punch_wind", 0.09),
                  ("punch2", 0.07, "jab", ease_out), ("kick_wind", 0.11),
                  ("kick", 0.08, "hit", ease_out), ("kick", 0.22), ("stance", 0.3)]),
-    "special": _a([("special_wind", 0.28), ("special", 0.1, "fire", ease_out), ("special", 0.45),
-                   ("stance", 0.3)]),
+    "special_kai": _a([("special_wind", 0.26), ("special", 0.1, "fire", ease_out), ("special", 0.5),
+                       ("stance", 0.3)]),
+    "special_luna": _a([("luna_wind", 0.24), ("luna_throw", 0.09, "fire", ease_out), ("luna_throw", 0.5),
+                        ("stance", 0.3)]),
+    "special_dax": _a([("dax_wind", 0.2), ("dax_dash", 0.12, None, ease_out), ("dax_cut", 0.07, "fire", ease_out),
+                       ("dax_cut", 0.42), ("stance", 0.34)]),
+    "special_mira": _a([("mira_wind", 0.18), ("mira_up", 0.16, None, ease_out), ("mira_kick", 0.1, "fire", ease_out),
+                        ("mira_kick", 0.34), ("stance", 0.34)]),
+    "special_ryu": _a([("ryu_wind", 0.22), ("ryu_open", 0.14, "fire", ease_out), ("ryu_strike", 0.14),
+                       ("ryu_strike", 0.4), ("stance", 0.3)]),
     "uppercut": _a([("upper_wind", 0.1), ("uppercut", 0.1, "hit", ease_out), ("uppercut", 0.25),
                     ("stance", 0.3)]),
     "hit": _a([("hit", 0.07, None, ease_out), ("hit", 0.22), ("stance", 0.3)]),
@@ -280,7 +300,7 @@ class Rig:
         return J
 
     # -- drawing --------------------------------------------------------------
-    def draw(self, surf, ox, oy, facing, scale, pose, t=0.0, flash=0.0, expr="normal", wind=0.0):
+    def draw(self, surf, ox, oy, facing, scale, pose, t=0.0, flash=0.0, expr="normal", wind=0.0, rim=None):
         J = self.solve(pose)
         fd, R = self.fd, self.R
 
@@ -297,7 +317,7 @@ class Rig:
         def H(x, y):
             return S(HL(x, y))
 
-        pen = Pen(surf, ol=max(1.4, 2.3 * scale), flash=flash)
+        pen = Pen(surf, ol=max(1.4, 2.3 * scale), flash=flash, rim=rim)
         sc = scale
         self.points = {k: S(J[k]) for k in ("hand_f", "hand_b", "head", "neck", "hip",
                                             "ankle_f")}
@@ -410,6 +430,16 @@ class Rig:
         shade = [at(0.95, -2), at(0.6, -3), at(0.2, -2), at(-0.08, -4), at(-0.1, -12),
                  at(0.0, -15), at(0.3, -12), at(0.6, -15), at(0.86, -18), at(0.98, -13)]
         pen.poly(shade, darker(fd.top, 0.82), outline=False)
+        # soft light on the chest, and folds of cloth towards the belt
+        pen.poly([at(0.92, 15), at(0.8, 18), at(0.58, 13), at(0.62, 5), at(0.86, 6)],
+                 lighter(fd.top, 0.16), outline=False)
+        for f0, f1 in ((-6, 2), (5, -1)):
+            pts = [at(0.46, f0), at(0.33, f1), at(0.33, f1 + 2), at(0.46, f0 + 1)]
+            pen.poly(pts, darker(fd.top, 0.74), outline=False)
+        if pen.rim:
+            pen.poly([at(0.98, -14), at(0.86, -19.5), at(0.6, -16.5), at(0.3, -12.5), at(0.02, -15.5),
+                      at(0.02, -13), at(0.3, -10), at(0.6, -13.5), at(0.86, -16.5), at(0.98, -11.5)],
+                     mix(darker(fd.top, 0.7), pen.rim, 0.75), outline=False)
 
         if s == "kai":
             pen.poly([at(1.02, 9), at(1.02, -3), at(0.62, 6)], fd.skin, outline=False)
@@ -511,6 +541,20 @@ class Rig:
         # hair
         hair = HAIR[fd.hair_style]
         pen.poly([H(x, y) for x, y in hair], fd.hair)
+        # depth: a darker lock leading into each spike of hair
+        locks = darker(fd.hair, 0.8)
+        for x, y in hair:
+            if x * x + y * y > 1.5 and y < 0.35:
+                bx, by = x * 0.5, y * 0.5 - 0.1
+                nx, ny = -(y - by) * 0.1, (x - bx) * 0.1
+                pen.poly([H(x * 0.93, y * 0.93), H(bx + nx, by + ny), H(bx - nx, by - ny)], locks, outline=False)
+        if pen.rim:   # stage light on the crown, on the side away from the main light
+            rimc = mix(fd.hair, pen.rim, 0.7)
+            side = 1 if S((1, 0))[0] > S((0, 0))[0] else -1    # light is fixed on the screen, not the fighter
+            arc = range(-60, 15, 10) if side > 0 else range(165, 240, 10)
+            pts = [H(1.0 * math.cos(math.radians(a)), 1.0 * math.sin(math.radians(a))) for a in arc]
+            pts += [H(0.88 * math.cos(math.radians(a)), 0.88 * math.sin(math.radians(a))) for a in reversed(arc)]
+            pen.poly(pts, rimc, outline=False)
         shine = [H(0.8 * math.cos(math.radians(a)), 0.8 * math.sin(math.radians(a)))
                  for a in range(215, 300, 12)]
         shine += [H(0.62 * math.cos(math.radians(a)), 0.62 * math.sin(math.radians(a)))
@@ -572,10 +616,12 @@ class Rig:
                 pygame_lines(pen, pts, 0.05 * self.R)
                 continue
             pen.poly(self._ellipse(H, cx, cy, ew, h), (255, 255, 255), outline=False)
+            pen.poly(self._ellipse(H, cx, cy - h * 0.55, ew * 0.92, h * 0.42), (205, 210, 225), outline=False)
             ix = cx + ew * 0.18
             pen.poly(self._ellipse(H, ix, cy + h * 0.1, ew * 0.72, h * 0.8), darker(fd.eyes, 0.7),
                      outline=False)
             pen.poly(self._ellipse(H, ix, cy + h * 0.25, ew * 0.6, h * 0.55), fd.eyes, outline=False)
+            pen.poly(self._ellipse(H, ix, cy + h * 0.52, ew * 0.42, h * 0.24), lighter(fd.eyes, 0.45), outline=False)
             pen.poly(self._ellipse(H, ix, cy + h * 0.12, ew * 0.3, h * 0.38), (20, 15, 30),
                      outline=False)
             pen.poly(self._ellipse(H, ix - ew * 0.25, cy - h * 0.25, ew * 0.22, h * 0.18, 10),

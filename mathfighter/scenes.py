@@ -12,7 +12,7 @@ from .characters import ROSTER
 from .config import __version__, BONUS_LEVEL, CREDITS_NAME, GOLD, GREEN, H, MAX_LEVEL, RED, W, WHITE
 from .draw import darker, fill_circle, fill_poly, lighter, mix, vgradient
 from .effects import Effects, Particle
-from .mathq import ADD, DIV, DISPLAY, MUL, OP_NAMES, SUB, make_question
+from .mathq import DISPLAY, OP_NAMES, make_question
 from .stages import STAGES
 from .ui import panel, text, text_img
 
@@ -93,7 +93,8 @@ class Title(Scene):
         elif (ev.type == pygame.KEYDOWN and ev.key in CONFIRM) or \
                 (ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 1):
             self.game.audio.play("confirm")
-            self.game.goto(HowTo(self.game) if not self.game.seen_howto else Difficulty(self.game))
+            from .menus import MainMenu
+            self.game.goto(MainMenu(self.game))
 
     def update(self, dt):
         super().update(dt)
@@ -125,7 +126,7 @@ class Title(Scene):
 
 class HowTo(Scene):
     LINES = [
-        ("Pick a fighter. Each one fights with a different kind of math!", WHITE),
+        ("Answer an attack in under 2 seconds for a SPECIAL MOVE: it takes 2 health!", (255, 200, 120)),
         ("You and the CPU take turns. On your turn, answer in 5 seconds to land a hit.", GOLD),
         ("When the CPU attacks, answer ITS math question fast to BLOCK. Too slow = hit!", (120, 200, 255)),
         ("Answer a defense question in under 2.5 seconds for a COUNTER attack!", (255, 160, 220)),
@@ -169,12 +170,12 @@ class Difficulty(Scene):
         self.bg = starfield_bg((30, 10, 50), (90, 30, 90))
         rng = random.Random(9)
         self.examples = {lv: "    ".join(make_question(op, lv, rng).text.replace(" = ?", "")
-                                       for op in (ADD, SUB, MUL, DIV)) for lv in range(1, BONUS_LEVEL + 1)}
+                                       for op in game.allowed_ops) for lv in range(1, BONUS_LEVEL + 1)}
         self.rects = [pygame.Rect(85 + i * 190, 250, 160, 200) for i in range(BONUS_LEVEL)]
         game.audio.play_music("menu")
 
     def choose(self):
-        self.game.level = self.sel
+        self.game.set_level(self.sel)
         self.game.audio.play("confirm")
         self.game.goto(Select(self.game))
 
@@ -193,7 +194,8 @@ class Difficulty(Scene):
             elif ev.key in CONFIRM:
                 self.choose()
             elif ev.key == pygame.K_ESCAPE:
-                g.to_title()
+                from .menus import MainMenu
+                g.goto(MainMenu(g))
         elif ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 1:
             for i, r in enumerate(self.rects):
                 if r.collidepoint(ev.pos) and i + 1 <= self.top:
@@ -445,6 +447,8 @@ class GameOver(Scene):
         st = self.game.stats
         text(surf, f"Correct answers: {st['correct']} / {st['asked']}      Score: {self.game.score:,}", 40, GOLD,
              center=(W // 2, 380))
+        if self.game.new_best_score:
+            text(surf, "NEW PERSONAL BEST for this level!", 44, (255, 240, 120), center=(W // 2, 430))
         if blink(self.t):
             text(surf, "Press ENTER to try this stage again (new score)", 50, GREEN, center=(W // 2, 490))
         text(surf, "ESC for the title screen", 36, (200, 200, 220), center=(W // 2, 600))
@@ -510,6 +514,8 @@ class Champion(Scene):
              center=(900, 590))
         text(surf, f"Correct: {st['correct']} / {st['asked']} ({pct}%)    Score: {self.game.score:,}", 36, WHITE,
              center=(900, 630))
+        if self.game.new_best_score:
+            text(surf, "NEW PERSONAL BEST!", 40, (255, 240, 120), center=(900, 200))
         if blink(self.t) and self.t > 1.0:
             text(surf, "Press ENTER", 40, GREEN, center=(900, 690))
 
@@ -651,10 +657,10 @@ class Credits(Scene):
                     msg = "You beat the BONUS level! You are a true Math Master!"
                 elif g.level == MAX_LEVEL:
                     g.unlock_bonus()
-                    g.level = BONUS_LEVEL
+                    g.set_level(BONUS_LEVEL)
                     msg = "BONUS LEVEL UNLOCKED: FRACTIONS!"
                 else:
-                    g.level += 1
+                    g.set_level(g.level + 1)
                     msg = f"Champion! Now try level {g.level}!"
                 g.audio.play("confirm")
                 g.goto(Difficulty(g, msg))
